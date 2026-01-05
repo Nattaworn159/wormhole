@@ -91,7 +91,7 @@
   },
   "optionalDependencies": {
     "@injectivelabs/networks": "1.10.12",
-    "@injectivelabs/sdk-ts": "1.10.72",
+    "@injectivelabs/sdk-ts": "1.17.2",
     "@injectivelabs/utils": "1.10.12"
   },
   "overrides": {
