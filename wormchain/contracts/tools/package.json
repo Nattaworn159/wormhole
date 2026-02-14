@@ -13,8 +13,8 @@
   "keywords": [],
   "author": "",
   "dependencies": {
-    "@certusone/wormhole-sdk": "0.10.10",
-    "@cosmjs/cosmwasm-stargate": "0.29.5",
+    "@certusone/wormhole-sdk": "0.10.18",
+    "@cosmjs/cosmwasm-stargate": "0.32.0",
     "@improbable-eng/grpc-web-node-http-transport": "0.15.0",
     "@wormhole-foundation/wormchain-sdk": "file:../../ts-sdk",
     "cosmwasm": "1.1.1",
