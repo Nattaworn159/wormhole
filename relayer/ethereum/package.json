@@ -21,7 +21,7 @@
     "dotenv": "^10.0.0",
     "elliptic": "^6.6.1",
     "js-sha3": "^0.8.0",
-    "typechain": "^8.1.1"
+    "typechain": "^8.3.2"
   },
   "overrides": {
     "elliptic": "^6.6.1"
