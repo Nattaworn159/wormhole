@@ -36,10 +36,10 @@
     "@certusone/wormhole-examples": "file:../../core",
     "@certusone/wormhole-sdk": "^0.10.18",
     "@chainsafe/truffle-plugin-abigen": "^0.0.1",
-    "@solana/spl-token": "^0.1.8",
-    "@solana/web3.js": "^1.24.0",
+    "@solana/spl-token": "^0.3.2",
+    "@solana/web3.js": "^1.91.3",
     "@truffle/hdwallet-provider": "^2.1.15",
-    "truffle-plugin-verify": "^0.5.11"
+    "truffle-plugin-verify": "^0.6.7"
   },
   "overrides": {
     "elliptic": "^6.6.1"
