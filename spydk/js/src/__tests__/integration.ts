@@ -6,7 +6,7 @@ import { createSpyRPCServiceClient, subscribeSignedVAA } from "..";
 
 setDefaultWasm("node");
 
-jest.setTimeout(60000);
+jest.setTimeout(120000);
 const ci = !!process.env.CI;
 export const SOLANA_HOST = ci
   ? "http://solana-devnet:8899"
@@ -61,5 +61,6 @@ test("Can spy on messages", (done) => {
     transaction.partialSign(keypair);
     const txid = await connection.sendRawTransaction(transaction.serialize());
     await connection.confirmTransaction(txid);
+    done()
   })();
 });

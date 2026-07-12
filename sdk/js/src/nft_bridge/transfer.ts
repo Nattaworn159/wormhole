@@ -1,4 +1,4 @@
-import { createApproveInstruction } from "@solana/spl-token";
+import { BN } from "@project-serum/anchor";
 import {
   Commitment,
   Connection,
@@ -7,9 +7,9 @@ import {
   PublicKeyInitData,
   Transaction,
 } from "@solana/web3.js";
-import { MsgExecuteContract } from "@terra-money/terra.js";
+import { Types } from "aptos";
 import { ethers, Overrides } from "ethers";
-import { BN } from "@project-serum/anchor";
+import { isBytes } from "ethers/lib/utils";
 import {
   NFTBridge__factory,
   NFTImplementation__factory,
@@ -27,7 +27,6 @@ import {
   coalesceChainId,
   createNonce,
 } from "../utils";
-import { isBytes } from "ethers/lib/utils";
 
 export async function transferFromEth(
   nftBridgeAddress: string,
@@ -131,41 +130,27 @@ export async function transferFromSolana(
   return transaction;
 }
 
-export async function transferFromTerra(
-  walletAddress: string,
+export function transferFromAptos(
   nftBridgeAddress: string,
-  tokenAddress: string,
-  tokenID: string,
+  creatorAddress: string,
+  collectionName: string,
+  tokenName: string,
+  propertyVersion: number,
   recipientChain: ChainId | ChainName,
-  recipientAddress: Uint8Array
-): Promise<MsgExecuteContract[]> {
+  recipient: Uint8Array
+): Types.EntryFunctionPayload {
   const recipientChainId = coalesceChainId(recipientChain);
-  const nonce = Math.round(Math.random() * 100000);
-  return [
-    new MsgExecuteContract(
-      walletAddress,
-      tokenAddress,
-      {
-        approve: {
-          spender: nftBridgeAddress,
-          token_id: tokenID,
-        },
-      },
-      {}
-    ),
-    new MsgExecuteContract(
-      walletAddress,
-      nftBridgeAddress,
-      {
-        initiate_transfer: {
-          contract_addr: tokenAddress,
-          token_id: tokenID,
-          recipient_chain: recipientChainId,
-          recipient: Buffer.from(recipientAddress).toString("base64"),
-          nonce: nonce,
-        },
-      },
-      {}
-    ),
-  ];
+  return {
+    function: `${nftBridgeAddress}::transfer_nft::transfer_nft_entry`,
+    type_arguments: [],
+    arguments: [
+      creatorAddress,
+      collectionName,
+      tokenName,
+      propertyVersion,
+      recipientChainId,
+      recipient,
+      createNonce().readUInt32LE(0),
+    ],
+  };
 }

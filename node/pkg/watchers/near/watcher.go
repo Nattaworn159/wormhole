@@ -56,6 +56,7 @@ type (
 		creationTime    time.Time
 		retryCounter    uint
 		delay           time.Duration
+		isReobservation bool
 
 		// set during processing
 		hasWormholeMsg bool // set during processing; whether this transaction emitted a Wormhole message
@@ -67,8 +68,9 @@ type (
 		nearRPC         string
 
 		// external channels
-		msgC     chan<- *common.MessagePublication   // validated (SECURITY: and only validated!) observations go into this channel
-		obsvReqC <-chan *gossipv1.ObservationRequest // observation requests are coming from this channel
+		msgC          chan<- *common.MessagePublication   // validated (SECURITY: and only validated!) observations go into this channel
+		obsvReqC      <-chan *gossipv1.ObservationRequest // observation requests are coming from this channel
+		readinessSync readiness.Component
 
 		// internal queues
 		transactionProcessingQueueCounter atomic.Int64
@@ -77,7 +79,7 @@ type (
 
 		// events channels
 		eventChanTxProcessedDuration chan time.Duration
-		eventChan                    chan eventType // whenever a messages is confirmed, post true in here
+		eventChan                    chan eventType
 
 		// Error channel
 		errC chan error
@@ -102,20 +104,22 @@ func NewWatcher(
 		nearRPC:                      nearRPC,
 		msgC:                         msgC,
 		obsvReqC:                     obsvReqC,
-		transactionProcessingQueue:   make(chan *transactionProcessingJob),
+		readinessSync:                common.MustConvertChainIdToReadinessSyncing(vaa.ChainIDNear),
+		transactionProcessingQueue:   make(chan *transactionProcessingJob, queueSize),
 		chunkProcessingQueue:         make(chan nearapi.ChunkHeader, queueSize),
 		eventChanTxProcessedDuration: make(chan time.Duration, 10),
 		eventChan:                    make(chan eventType, 10),
 	}
 }
 
-func newTransactionProcessingJob(txHash string, senderAccountId string) *transactionProcessingJob {
+func newTransactionProcessingJob(txHash string, senderAccountId string, isReobservation bool) *transactionProcessingJob {
 	return &transactionProcessingJob{
 		txHash,
 		senderAccountId,
 		time.Now(),
 		0,
 		initialTxProcDelay,
+		isReobservation,
 		false,
 	}
 }
@@ -149,7 +153,7 @@ func (e *Watcher) runBlockPoll(ctx context.Context) error {
 				Height:          int64(highestFinalBlockHeightObserved),
 				ContractAddress: e.wormholeAccount,
 			})
-			readiness.SetReady(common.ReadinessNearSyncing)
+			readiness.SetReady(e.readinessSync)
 
 			timer.Reset(blockPollInterval)
 		}
@@ -172,7 +176,11 @@ func (e *Watcher) runChunkFetcher(ctx context.Context) error {
 				continue
 			}
 			for _, job := range newJobs {
-				e.schedule(ctx, job, job.delay)
+				err := e.schedule(ctx, job, job.delay)
+				if err != nil {
+					// Debug-level logging here because it could be very noisy (one log entry for *any* transaction on the NEAR blockchain)
+					logger.Debug("error scheduling transaction processing job", zap.Error(err))
+				}
 			}
 		}
 	}
@@ -198,8 +206,12 @@ func (e *Watcher) runObsvReqProcessor(ctx context.Context) error {
 			// This value is used by NEAR to determine which shard to query. An incorrect value here is not a security risk but could lead to reobservation requests failing.
 			// Guardians currently run nodes for all shards and the API seems to be returning the correct results independent of the set senderAccountId but this could change in the future.
 			// Fixing this would require adding the transaction sender account ID to the observation request.
-			job := newTransactionProcessingJob(txHash, e.wormholeAccount)
-			e.schedule(ctx, job, time.Nanosecond)
+			job := newTransactionProcessingJob(txHash, e.wormholeAccount, true)
+			err := e.schedule(ctx, job, time.Nanosecond)
+			if err != nil {
+				// Error-level logging here because this is after an re-observation request already, which should be infrequent
+				logger.Error("error scheduling transaction processing job", zap.Error(err))
+			}
 		}
 	}
 }
@@ -218,7 +230,7 @@ func (e *Watcher) runTxProcessor(ctx context.Context) error {
 				// transaction processing unsuccessful. Retry if retry_counter not exceeded.
 				if job.retryCounter < txProcRetry {
 					// Log and retry with exponential backoff
-					logger.Info(
+					logger.Debug(
 						"near.processTx",
 						zap.String("log_msg_type", "tx_processing_retry"),
 						zap.String("tx_hash", job.txHash),
@@ -226,7 +238,11 @@ func (e *Watcher) runTxProcessor(ctx context.Context) error {
 					)
 					job.retryCounter++
 					job.delay *= 2
-					e.schedule(ctx, job, job.delay)
+					err := e.schedule(ctx, job, job.delay)
+					if err != nil {
+						// Debug-level logging here because it could be very noisy (one log entry for *any* transaction on the NEAR blockchain)
+						logger.Debug("error scheduling transaction processing job", zap.Error(err))
+					}
 				} else {
 					// Warn and do not retry
 					logger.Warn(
@@ -250,6 +266,13 @@ func (e *Watcher) runTxProcessor(ctx context.Context) error {
 
 func (e *Watcher) Run(ctx context.Context) error {
 	logger := supervisor.Logger(ctx)
+
+	logger.Info("Starting watcher",
+		zap.String("watcher_name", "near"),
+		zap.Bool("mainnet", e.mainnet),
+		zap.String("wormholeAccount", e.wormholeAccount),
+		zap.String("nearRPC", e.nearRPC),
+	)
 
 	e.errC = make(chan error)
 
@@ -289,7 +312,12 @@ func (e *Watcher) Run(ctx context.Context) error {
 
 // schedule pushes a job to workers after delay. It is context aware and will not execute the job if the context
 // is cancelled before delay has passed and the job is picked up by a worker.
-func (e *Watcher) schedule(ctx context.Context, job *transactionProcessingJob, delay time.Duration) {
+func (e *Watcher) schedule(ctx context.Context, job *transactionProcessingJob, delay time.Duration) error {
+	if int(e.transactionProcessingQueueCounter.Load())+len(e.transactionProcessingQueue) > queueSize {
+		p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDNear, 1)
+		return fmt.Errorf("NEAR transactionProcessingQueue exceeds max queue size. Skipping transaction.")
+	}
+
 	common.RunWithScissors(ctx, e.errC, "scheduledThread",
 		func(ctx context.Context) error {
 			timer := time.NewTimer(delay)
@@ -311,4 +339,5 @@ func (e *Watcher) schedule(ctx context.Context, job *transactionProcessingJob, d
 			}
 			return nil
 		})
+	return nil
 }

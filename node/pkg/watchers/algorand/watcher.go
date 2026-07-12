@@ -24,6 +24,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// Algorand allows max depth of 8 inner transactions
+const MAX_DEPTH = 8
+
 type (
 	// Watcher is responsible for looking over Algorand blockchain and reporting new transactions to the appid
 	Watcher struct {
@@ -33,10 +36,18 @@ type (
 		algodToken   string
 		appid        uint64
 
-		msgC     chan<- *common.MessagePublication
-		obsvReqC <-chan *gossipv1.ObservationRequest
+		msgC          chan<- *common.MessagePublication
+		obsvReqC      <-chan *gossipv1.ObservationRequest
+		readinessSync readiness.Component
 
 		next_round uint64
+	}
+
+	algorandObservation struct {
+		emitterAddress vaa.Address
+		nonce          uint32
+		sequence       uint64
+		payload        []byte
 	}
 )
 
@@ -64,42 +75,72 @@ func NewWatcher(
 	obsvReqC <-chan *gossipv1.ObservationRequest,
 ) *Watcher {
 	return &Watcher{
-		indexerRPC:   indexerRPC,
-		indexerToken: indexerToken,
-		algodRPC:     algodRPC,
-		algodToken:   algodToken,
-		appid:        appid,
-		msgC:         msgC,
-		obsvReqC:     obsvReqC,
-		next_round:   0,
+		indexerRPC:    indexerRPC,
+		indexerToken:  indexerToken,
+		algodRPC:      algodRPC,
+		algodToken:    algodToken,
+		appid:         appid,
+		msgC:          msgC,
+		obsvReqC:      obsvReqC,
+		readinessSync: common.MustConvertChainIdToReadinessSyncing(vaa.ChainIDAlgorand),
+		next_round:    0,
 	}
 }
 
-func lookAtTxn(e *Watcher, t types.SignedTxnInBlock, b types.Block, logger *zap.Logger) {
-	for q := 0; q < len(t.EvalDelta.InnerTxns); q++ {
-		var it = t.EvalDelta.InnerTxns[q]
-		var at = it.Txn
+// gatherObservations recurses through a given transactions inner-transactions
+// to find any messages emitted from the core wormhole contract.
+// Algorand allows up to 8 levels of inner transactions.
+func gatherObservations(e *Watcher, t types.SignedTxnWithAD, depth int, logger *zap.Logger) (obs []algorandObservation) {
 
-		if (len(at.ApplicationArgs) != 3) || (uint64(at.ApplicationID) != e.appid) {
-			continue
-		}
+	// SECURITY defense-in-depth: don't recurse > max depth allowed by Algorand
+	if depth >= MAX_DEPTH {
+		logger.Error("algod client", zap.Error(fmt.Errorf("exceeded max depth of %d", MAX_DEPTH)))
+		return
+	}
 
-		if string(at.ApplicationArgs[0]) != "publishMessage" {
-			continue
-		}
+	// recurse through nested inner transactions
+	for _, itxn := range t.EvalDelta.InnerTxns {
+		obs = append(obs, gatherObservations(e, itxn, depth+1, logger)...)
+	}
 
-		var ed = it.EvalDelta
-		if len(ed.Logs) == 0 {
-			continue
-		}
+	var at = t.Txn
+	var ed = t.EvalDelta
 
-		emitter := at.Sender
+	// check if the current transaction meets what we expect
+	// for an emitted message
+	if (len(at.ApplicationArgs) != 3) || (uint64(at.ApplicationID) != e.appid) || string(at.ApplicationArgs[0]) != "publishMessage" || len(ed.Logs) == 0 {
+		return
+	}
 
-		var a vaa.Address
-		copy(a[:], emitter[:]) // 32 bytes = 8edf5b0e108c3a1a0a4b704cc89591f2ad8d50df24e991567e640ed720a94be2
+	logger.Info("emitter: " + hex.EncodeToString(at.Sender[:]))
 
-		logger.Info("emitter: " + hex.EncodeToString(emitter[:]))
+	var a vaa.Address
+	copy(a[:], at.Sender[:]) // 32 bytes = 8edf5b0e108c3a1a0a4b704cc89591f2ad8d50df24e991567e640ed720a94be2
 
+	obs = append(obs, algorandObservation{
+		nonce:          uint32(binary.BigEndian.Uint64(at.ApplicationArgs[2])),
+		sequence:       binary.BigEndian.Uint64([]byte(ed.Logs[0])),
+		emitterAddress: a,
+		payload:        at.ApplicationArgs[1],
+	})
+
+	return
+}
+
+// lookAtTxn takes an outer transaction from the block.payset and gathers
+// observations from messages emitted in nested inner transactions
+// then passes them on the relevant channels
+func lookAtTxn(e *Watcher, t types.SignedTxnInBlock, b types.Block, logger *zap.Logger, isReobservation bool) {
+
+	observations := gatherObservations(e, t.SignedTxnWithAD, 0, logger)
+
+	// We use the outermost transaction id in the observation message
+	// so we can apply the same logic to gather any messages emitted
+	// by inner transactions
+	var txHash eth_common.Hash
+	if len(observations) > 0 {
+		// Repopulate the genesis id/hash for the transaction
+		// since in the block encoding, it's omitted to save space
 		t.Txn.GenesisID = b.GenesisID
 		t.Txn.GenesisHash = b.GenesisHash
 		Id := crypto.GetTxID(t.Txn)
@@ -107,22 +148,24 @@ func lookAtTxn(e *Watcher, t types.SignedTxnInBlock, b types.Block, logger *zap.
 		id, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(Id)
 		if err != nil {
 			logger.Error("Base32 DecodeString", zap.Error(err))
-			continue
+			return
 		}
-
 		logger.Info("id: " + hex.EncodeToString(id) + " " + Id)
 
-		var txHash = eth_common.BytesToHash(id) // 32 bytes = d3b136a6a182a40554b2fafbc8d12a7a22737c10c81e33b33d1dcb74c532708b
+		txHash = eth_common.BytesToHash(id) // 32 bytes = d3b136a6a182a40554b2fafbc8d12a7a22737c10c81e33b33d1dcb74c532708b
+	}
 
+	for _, obs := range observations {
 		observation := &common.MessagePublication{
-			TxHash:           txHash,
-			Timestamp:        time.Unix(int64(b.TimeStamp), 0),
-			Nonce:            uint32(binary.BigEndian.Uint64(at.ApplicationArgs[2])),
-			Sequence:         binary.BigEndian.Uint64([]byte(ed.Logs[0])),
+			TxID:             txHash.Bytes(),
+			Timestamp:        time.Unix(b.TimeStamp, 0),
+			Nonce:            obs.nonce,
+			Sequence:         obs.sequence,
 			EmitterChain:     vaa.ChainIDAlgorand,
-			EmitterAddress:   a,
-			Payload:          at.ApplicationArgs[1],
+			EmitterAddress:   obs.emitterAddress,
+			Payload:          obs.payload,
 			ConsistencyLevel: 0,
+			IsReobservation:  isReobservation,
 		}
 
 		algorandMessagesConfirmed.Inc()
@@ -149,6 +192,15 @@ func (e *Watcher) Run(ctx context.Context) error {
 
 	logger := supervisor.Logger(ctx)
 
+	logger.Info("Starting watcher",
+		zap.String("watcher_name", "algorand"),
+		zap.String("indexerRPC", e.indexerRPC),
+		zap.String("indexerToken", e.indexerToken),
+		zap.String("algodRPC", e.algodRPC),
+		zap.String("algodToken", e.algodToken),
+		zap.Uint64("appid", e.appid),
+	)
+
 	logger.Info("Algorand watcher connecting to indexer  ", zap.String("url", e.indexerRPC))
 	logger.Info("Algorand watcher connecting to RPC node ", zap.String("url", e.algodRPC))
 
@@ -169,7 +221,7 @@ func (e *Watcher) Run(ctx context.Context) error {
 		return err
 	}
 
-	status, err := algodClient.StatusAfterBlock(0).Do(context.Background())
+	status, err := algodClient.StatusAfterBlock(0).Do(ctx)
 	if err != nil {
 		logger.Error("StatusAfterBlock", zap.Error(err))
 		p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDAlgorand, 1)
@@ -193,7 +245,7 @@ func (e *Watcher) Run(ctx context.Context) error {
 				zap.String("tx_hash", hex.EncodeToString(r.TxHash)),
 				zap.String("base32_tx_hash", base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(r.TxHash)))
 
-			result, err := indexerClient.SearchForTransactions().TXID(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(r.TxHash)).Do(context.Background())
+			result, err := indexerClient.SearchForTransactions().TXID(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(r.TxHash)).Do(ctx)
 			if err != nil {
 				logger.Error("SearchForTransactions", zap.Error(err))
 				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDAlgorand, 1)
@@ -202,7 +254,7 @@ func (e *Watcher) Run(ctx context.Context) error {
 			for _, t := range result.Transactions {
 				r := t.ConfirmedRound
 
-				block, err := algodClient.Block(r).Do(context.Background())
+				block, err := algodClient.Block(r).Do(ctx)
 				if err != nil {
 					logger.Error("SearchForTransactions", zap.Error(err))
 					p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDAlgorand, 1)
@@ -210,7 +262,7 @@ func (e *Watcher) Run(ctx context.Context) error {
 				}
 
 				for _, element := range block.Payset {
-					lookAtTxn(e, element, block, logger)
+					lookAtTxn(e, element, block, logger, true)
 				}
 			}
 
@@ -236,7 +288,7 @@ func (e *Watcher) Run(ctx context.Context) error {
 					}
 
 					for _, element := range block.Payset {
-						lookAtTxn(e, element, block, logger)
+						lookAtTxn(e, element, block, logger, false)
 					}
 					e.next_round = e.next_round + 1
 
@@ -252,7 +304,7 @@ func (e *Watcher) Run(ctx context.Context) error {
 				ContractAddress: fmt.Sprintf("%d", e.appid),
 			})
 
-			readiness.SetReady(common.ReadinessAlgorandSyncing)
+			readiness.SetReady(e.readinessSync)
 		}
 	}
 }

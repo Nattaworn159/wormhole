@@ -63,7 +63,7 @@ pub fn instantiate(
 
     if let Some(mint_info) = msg.mint {
         execute_mint(deps, env, info, mint_info.recipient, mint_info.amount)
-            .map_err(|e| StdError::generic_err(format!("{}", e)))?;
+            .map_err(|e| StdError::generic_err(format!("{e}")))?;
     }
 
     if let Some(hook) = msg.init_hook {
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn can_mint_by_minter() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_dependencies();
         let minter = HumanAddr::from("minter");
         let recipient = HumanAddr::from("recipient");
         let amount = Uint128::new(222_222_222);
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn others_cannot_mint() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_dependencies();
         let minter = HumanAddr::from("minter");
         let recipient = HumanAddr::from("recipient");
         do_init(deps.as_mut(), &minter);
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn transfer_balance_success() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_dependencies();
         let minter = HumanAddr::from("minter");
         let owner = HumanAddr::from("owner");
         let amount_initial = Uint128::new(222_222_222);
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn transfer_balance_not_enough() {
-        let mut deps = mock_dependencies(&[]);
+        let mut deps = mock_dependencies();
         let minter = HumanAddr::from("minter");
         let owner = HumanAddr::from("owner");
         let amount_initial = Uint128::new(222_221);

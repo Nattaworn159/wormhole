@@ -3,10 +3,13 @@
   "version": "0.0.1",
   "description": "Typescript SDK for interating with the Wormhole chain",
   "main": "lib/index.js",
+  "files": [
+    "lib/"
+  ],
   "scripts": {
     "test": "jest --config jestconfig.json --verbose",
     "build": "npm run genTypes && tsc",
-    "genTypes": "node src/buildHelper.cjs"
+    "genTypes": "echo \"disabled: node src/buildHelper.cjs\""
   },
   "repository": {
     "type": "git",
@@ -20,15 +23,15 @@
   "homepage": "https://github.com/wormhole-foundation/wormchain#readme",
   "dependencies": {
     "@certusone/wormhole-sdk": "^0.2.0",
-    "@cosmjs/cosmwasm-stargate": "^0.27.1",
+    "@cosmjs/cosmwasm-stargate": "^0.32.0",
     "@cosmjs/launchpad": "^0.27.1",
     "@cosmjs/math": "^0.27.1",
     "@cosmjs/proto-signing": "^0.27.1",
     "@cosmjs/stargate": "^0.27.1",
-    "@cosmjs/tendermint-rpc": "^0.27.1",
-    "axios": "^0.26.0",
+    "@cosmjs/tendermint-rpc": "^0.34.0",
+    "axios": "^1.15.2",
     "bech32": "^2.0.0",
-    "elliptic": "^6.5.4",
+    "elliptic": "^6.6.1",
     "ethers": "^5.5.4",
     "keccak256": "^1.0.6",
     "node-fetch": "^2.6.7",
@@ -39,5 +42,8 @@
   },
   "devDependencies": {
     "jest": "^27.5.1"
+  },
+  "overrides": {
+    "elliptic": "^6.6.1"
   }
 }

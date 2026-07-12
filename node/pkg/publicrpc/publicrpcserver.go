@@ -54,7 +54,7 @@ func (s *PublicrpcServer) GetLastHeartbeats(ctx context.Context, req *publicrpcv
 		for peerId, hb := range v {
 			resp.Entries = append(resp.Entries, &publicrpcv1.GetLastHeartbeatsResponse_Entry{
 				VerifiedGuardianAddr: addr.Hex(),
-				P2PNodeAddr:          peerId.Pretty(),
+				P2PNodeAddr:          peerId.String(),
 				RawHeartbeat:         hb,
 			})
 		}
@@ -105,11 +105,6 @@ func (s *PublicrpcServer) GetSignedVAA(ctx context.Context, req *publicrpcv1.Get
 	}, nil
 }
 
-func (s *PublicrpcServer) GetSignedBatchVAA(ctx context.Context, req *publicrpcv1.GetSignedBatchVAARequest) (*publicrpcv1.GetSignedBatchVAAResponse, error) {
-	// TEMP - noop implementaion to satisfy inclusion requirement
-	return nil, status.Error(codes.Unimplemented, "not yet implemented")
-}
-
 func (s *PublicrpcServer) GetCurrentGuardianSet(ctx context.Context, req *publicrpcv1.GetCurrentGuardianSetRequest) (*publicrpcv1.GetCurrentGuardianSetResponse, error) {
 	gs := s.gst.Get()
 	if gs == nil {
@@ -156,6 +151,10 @@ func (s *PublicrpcServer) GovernorGetEnqueuedVAAs(ctx context.Context, req *publ
 
 func (s *PublicrpcServer) GovernorIsVAAEnqueued(ctx context.Context, req *publicrpcv1.GovernorIsVAAEnqueuedRequest) (*publicrpcv1.GovernorIsVAAEnqueuedResponse, error) {
 	resp := &publicrpcv1.GovernorIsVAAEnqueuedResponse{}
+
+	if req.MessageId == nil {
+		return nil, status.Error(codes.InvalidArgument, "no message ID specified")
+	}
 
 	if s.gov != nil {
 		var err error

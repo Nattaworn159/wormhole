@@ -43,27 +43,6 @@ type (
 		Payload []byte
 	}
 
-	BatchVAA struct {
-		// Version of the VAA schema
-		Version uint8
-		// GuardianSetIndex is the index of the guardian set that signed this VAA
-		GuardianSetIndex uint32
-		// SignatureData is the signature of the guardian set
-		Signatures []*Signature
-
-		// EmitterChain the VAAs were emitted on
-		EmitterChain ChainID
-
-		// The chain-native identifier of the transaction that created the batch VAA.
-		TransactionID common.Hash
-
-		// array of Observation VAA hashes
-		Hashes []common.Hash
-
-		// Observations in the batch
-		Observations []*Observation
-	}
-
 	// ChainID of a Wormhole chain
 	ChainID uint16
 	// Action of a VAA
@@ -168,18 +147,12 @@ func (c ChainID) String() string {
 		return "avalanche"
 	case ChainIDOasis:
 		return "oasis"
+	case ChainIDAlgorand:
+		return "algorand"
 	case ChainIDAurora:
 		return "aurora"
 	case ChainIDFantom:
 		return "fantom"
-	case ChainIDAlgorand:
-		return "algorand"
-	case ChainIDNear:
-		return "near"
-	case ChainIDAptos:
-		return "aptos"
-	case ChainIDSui:
-		return "sui"
 	case ChainIDKarura:
 		return "karura"
 	case ChainIDAcala:
@@ -188,26 +161,106 @@ func (c ChainID) String() string {
 		return "klaytn"
 	case ChainIDCelo:
 		return "celo"
+	case ChainIDNear:
+		return "near"
 	case ChainIDMoonbeam:
 		return "moonbeam"
-	case ChainIDNeon:
-		return "neon"
 	case ChainIDTerra2:
 		return "terra2"
 	case ChainIDInjective:
 		return "injective"
+	case ChainIDOsmosis:
+		return "osmosis"
+	case ChainIDSui:
+		return "sui"
+	case ChainIDAptos:
+		return "aptos"
 	case ChainIDArbitrum:
 		return "arbitrum"
 	case ChainIDOptimism:
 		return "optimism"
+	case ChainIDGnosis:
+		return "gnosis"
 	case ChainIDPythNet:
 		return "pythnet"
-	case ChainIDWormchain:
-		return "wormchain"
 	case ChainIDXpla:
 		return "xpla"
 	case ChainIDBtc:
 		return "btc"
+	case ChainIDBase:
+		return "base"
+	case ChainIDFileCoin:
+		return "filecoin"
+	case ChainIDSei:
+		return "sei"
+	case ChainIDRootstock:
+		return "rootstock"
+	case ChainIDScroll:
+		return "scroll"
+	case ChainIDMantle:
+		return "mantle"
+	case ChainIDBlast:
+		return "blast"
+	case ChainIDXLayer:
+		return "xlayer"
+	case ChainIDLinea:
+		return "linea"
+	case ChainIDBerachain:
+		return "berachain"
+	case ChainIDSeiEVM:
+		return "seievm"
+	case ChainIDEclipse:
+		return "eclipse"
+	case ChainIDBOB:
+		return "bob"
+	case ChainIDSnaxchain:
+		return "snaxchain"
+	case ChainIDUnichain:
+		return "unichain"
+	case ChainIDWorldchain:
+		return "worldchain"
+	case ChainIDInk:
+		return "ink"
+	case ChainIDHyperEVM:
+		return "hyperevm"
+	case ChainIDMonad:
+		return "monad"
+	case ChainIDMovement:
+		return "movement"
+	case ChainIDWormchain:
+		return "wormchain"
+	case ChainIDCosmoshub:
+		return "cosmoshub"
+	case ChainIDEvmos:
+		return "evmos"
+	case ChainIDKujira:
+		return "kujira"
+	case ChainIDNeutron:
+		return "neutron"
+	case ChainIDCelestia:
+		return "celestia"
+	case ChainIDStargaze:
+		return "stargaze"
+	case ChainIDSeda:
+		return "seda"
+	case ChainIDDymension:
+		return "dymension"
+	case ChainIDProvenance:
+		return "provenance"
+	case ChainIDNoble:
+		return "noble"
+	case ChainIDSepolia:
+		return "sepolia"
+	case ChainIDArbitrumSepolia:
+		return "arbitrum_sepolia"
+	case ChainIDBaseSepolia:
+		return "base_sepolia"
+	case ChainIDOptimismSepolia:
+		return "optimism_sepolia"
+	case ChainIDHolesky:
+		return "holesky"
+	case ChainIDPolygonSepolia:
+		return "polygon_sepolia"
 	default:
 		return fmt.Sprintf("unknown chain ID: %d", c)
 	}
@@ -231,18 +284,12 @@ func ChainIDFromString(s string) (ChainID, error) {
 		return ChainIDAvalanche, nil
 	case "oasis":
 		return ChainIDOasis, nil
+	case "algorand":
+		return ChainIDAlgorand, nil
 	case "aurora":
 		return ChainIDAurora, nil
 	case "fantom":
 		return ChainIDFantom, nil
-	case "algorand":
-		return ChainIDAlgorand, nil
-	case "near":
-		return ChainIDNear, nil
-	case "sui":
-		return ChainIDSui, nil
-	case "aptos":
-		return ChainIDAptos, nil
 	case "karura":
 		return ChainIDKarura, nil
 	case "acala":
@@ -251,26 +298,106 @@ func ChainIDFromString(s string) (ChainID, error) {
 		return ChainIDKlaytn, nil
 	case "celo":
 		return ChainIDCelo, nil
+	case "near":
+		return ChainIDNear, nil
 	case "moonbeam":
 		return ChainIDMoonbeam, nil
-	case "neon":
-		return ChainIDNeon, nil
 	case "terra2":
 		return ChainIDTerra2, nil
 	case "injective":
 		return ChainIDInjective, nil
+	case "osmosis":
+		return ChainIDOsmosis, nil
+	case "sui":
+		return ChainIDSui, nil
+	case "aptos":
+		return ChainIDAptos, nil
 	case "arbitrum":
 		return ChainIDArbitrum, nil
 	case "optimism":
 		return ChainIDOptimism, nil
+	case "gnosis":
+		return ChainIDGnosis, nil
 	case "pythnet":
 		return ChainIDPythNet, nil
-	case "wormchain":
-		return ChainIDWormchain, nil
 	case "xpla":
 		return ChainIDXpla, nil
 	case "btc":
 		return ChainIDBtc, nil
+	case "base":
+		return ChainIDBase, nil
+	case "filecoin":
+		return ChainIDFileCoin, nil
+	case "sei":
+		return ChainIDSei, nil
+	case "rootstock":
+		return ChainIDRootstock, nil
+	case "scroll":
+		return ChainIDScroll, nil
+	case "mantle":
+		return ChainIDMantle, nil
+	case "blast":
+		return ChainIDBlast, nil
+	case "xlayer":
+		return ChainIDXLayer, nil
+	case "linea":
+		return ChainIDLinea, nil
+	case "berachain":
+		return ChainIDBerachain, nil
+	case "seievm":
+		return ChainIDSeiEVM, nil
+	case "eclipse":
+		return ChainIDEclipse, nil
+	case "bob":
+		return ChainIDBOB, nil
+	case "snaxchain":
+		return ChainIDSnaxchain, nil
+	case "unichain":
+		return ChainIDUnichain, nil
+	case "worldchain":
+		return ChainIDWorldchain, nil
+	case "ink":
+		return ChainIDInk, nil
+	case "hyperevm":
+		return ChainIDHyperEVM, nil
+	case "monad":
+		return ChainIDMonad, nil
+	case "movement":
+		return ChainIDMovement, nil
+	case "wormchain":
+		return ChainIDWormchain, nil
+	case "cosmoshub":
+		return ChainIDCosmoshub, nil
+	case "evmos":
+		return ChainIDEvmos, nil
+	case "kujira":
+		return ChainIDKujira, nil
+	case "neutron":
+		return ChainIDNeutron, nil
+	case "celestia":
+		return ChainIDCelestia, nil
+	case "stargaze":
+		return ChainIDStargaze, nil
+	case "seda":
+		return ChainIDSeda, nil
+	case "dymension":
+		return ChainIDDymension, nil
+	case "provenance":
+		return ChainIDProvenance, nil
+	case "noble":
+		return ChainIDNoble, nil
+	case "sepolia":
+		return ChainIDSepolia, nil
+	case "arbitrum_sepolia":
+		return ChainIDArbitrumSepolia, nil
+	case "base_sepolia":
+		return ChainIDBaseSepolia, nil
+	case "optimism_sepolia":
+		return ChainIDOptimismSepolia, nil
+	case "holesky":
+		return ChainIDHolesky, nil
+	case "polygon_sepolia":
+		return ChainIDPolygonSepolia, nil
 	default:
 		return ChainIDUnset, fmt.Errorf("unknown chain ID: %s", s)
 	}
@@ -294,20 +421,58 @@ func GetAllNetworkIDs() []ChainID {
 		ChainIDCelo,
 		ChainIDNear,
 		ChainIDMoonbeam,
-		ChainIDNeon,
 		ChainIDTerra2,
 		ChainIDInjective,
+		ChainIDOsmosis,
 		ChainIDSui,
 		ChainIDAptos,
 		ChainIDArbitrum,
 		ChainIDOptimism,
+		ChainIDGnosis,
 		ChainIDPythNet,
 		ChainIDXpla,
 		ChainIDBtc,
+		ChainIDBase,
+		ChainIDFileCoin,
+		ChainIDSei,
+		ChainIDRootstock,
+		ChainIDScroll,
+		ChainIDMantle,
+		ChainIDBlast,
+		ChainIDXLayer,
+		ChainIDLinea,
+		ChainIDBerachain,
+		ChainIDSeiEVM,
+		ChainIDEclipse,
+		ChainIDBOB,
+		ChainIDSnaxchain,
+		ChainIDUnichain,
+		ChainIDWorldchain,
+		ChainIDInk,
+		ChainIDHyperEVM,
+		ChainIDMonad,
+		ChainIDMovement,
 		ChainIDWormchain,
+		ChainIDCosmoshub,
+		ChainIDEvmos,
+		ChainIDKujira,
+		ChainIDNeutron,
+		ChainIDCelestia,
+		ChainIDStargaze,
+		ChainIDSeda,
+		ChainIDDymension,
+		ChainIDProvenance,
+		ChainIDNoble,
+		ChainIDSepolia,
+		ChainIDArbitrumSepolia,
+		ChainIDBaseSepolia,
+		ChainIDOptimismSepolia,
+		ChainIDHolesky,
+		ChainIDPolygonSepolia,
 	}
 }
 
+// NOTE: Please keep these in numerical order.
 const (
 	ChainIDUnset ChainID = 0
 	// ChainIDSolana is the ChainID of Solana
@@ -342,12 +507,13 @@ const (
 	ChainIDNear ChainID = 15
 	// ChainIDMoonbeam is the ChainID of Moonbeam
 	ChainIDMoonbeam ChainID = 16
-	// ChainIDNeon is the ChainID of Neon
-	ChainIDNeon ChainID = 17
+	// OBSOLETE: ChainIDNeon ChainID = 17
 	// ChainIDTerra2 is the ChainID of Terra 2
 	ChainIDTerra2 ChainID = 18
 	// ChainIDInjective is the ChainID of Injective
 	ChainIDInjective ChainID = 19
+	// ChainIDOsmosis is the ChainID of Osmosis
+	ChainIDOsmosis ChainID = 20
 	// ChainIDSui is the ChainID of Sui
 	ChainIDSui ChainID = 21
 	// ChainIDAptos is the ChainID of Aptos
@@ -356,14 +522,96 @@ const (
 	ChainIDArbitrum ChainID = 23
 	// ChainIDOptimism is the ChainID of Optimism
 	ChainIDOptimism ChainID = 24
+	// ChainIDGnosis is the ChainID of Gnosis
+	ChainIDGnosis ChainID = 25
 	// ChainIDPythNet is the ChainID of PythNet
 	ChainIDPythNet ChainID = 26
+	// NOTE: 27 belongs to a chain that was never deployed.
 	// ChainIDXpla is the ChainID of Xpla
 	ChainIDXpla ChainID = 28
 	//ChainIDBtc is the ChainID of Bitcoin
 	ChainIDBtc ChainID = 29
+	// ChainIDBase is the ChainID of Base
+	ChainIDBase ChainID = 30
+	// ChainIDFileCoin is the ChainID of FileCoin
+	ChainIDFileCoin ChainID = 31
+	// ChainIDSei is the ChainID of Sei
+	ChainIDSei ChainID = 32
+	// ChainIDRootstock is the ChainID of Rootstock
+	ChainIDRootstock ChainID = 33
+	// ChainIDScroll is the ChainID of Scroll
+	ChainIDScroll ChainID = 34
+	// ChainIDMantle is the ChainID of Mantle
+	ChainIDMantle ChainID = 35
+	// ChainIDBlast is the ChainID of Blast
+	ChainIDBlast ChainID = 36
+	// ChainIDXLayer is the ChainID of XLayer
+	ChainIDXLayer ChainID = 37
+	// ChainIDLinea is the ChainID of Linea
+	ChainIDLinea ChainID = 38
+	// ChainIDBerachain is the ChainID of Berachain
+	ChainIDBerachain ChainID = 39
+	// ChainIDSeiEVM is the ChainID of SeiEVM
+	ChainIDSeiEVM ChainID = 40
+	// ChainIDEclipse is the ChainID of Eclipse
+	ChainIDEclipse ChainID = 41
+	// ChainIDBOB is the ChainID of BOB
+	ChainIDBOB ChainID = 42
+	// ChainIDSnaxchain is the ChainID of Snaxchain
+	ChainIDSnaxchain ChainID = 43
+	// ChainIDUnichain is the ChainID of Unichain
+	ChainIDUnichain ChainID = 44
+	// ChainIDWorldchain is the ChainID of Worldchain
+	ChainIDWorldchain ChainID = 45
+	// ChainIDInk is the ChainID of Ink
+	ChainIDInk ChainID = 46
+	// ChainIDHyperEVM is the ChainID of HyperEVM
+	ChainIDHyperEVM ChainID = 47
+	// ChainIDMonad is the ChainID of Monad
+	ChainIDMonad ChainID = 48
+	// ChainIDMovement is the ChainID of Movement
+	ChainIDMovement ChainID = 49
 	//ChainIDWormchain is the ChainID of Wormchain
+
+	// Wormchain is in it's own range.
 	ChainIDWormchain ChainID = 3104
+
+	// The IBC chains start at 4000.
+	// ChainIDCosmoshub is the ChainID of Cosmoshub
+	ChainIDCosmoshub ChainID = 4000
+	// ChainIDEvmos is the ChainID of Evmos
+	ChainIDEvmos ChainID = 4001
+	// ChainIDKujira is the ChainID of Kujira
+	ChainIDKujira ChainID = 4002
+	// ChainIDNeutron is the ChainID of Neutron
+	ChainIDNeutron ChainID = 4003
+	// ChainIDCelestia is the ChainID of Celestia
+	ChainIDCelestia ChainID = 4004
+	// ChainIDStargaze is the ChainID of Stargaze
+	ChainIDStargaze ChainID = 4005
+	// ChainIDSeda is the ChainID of Seda
+	ChainIDSeda ChainID = 4006
+	// ChainIDDymension is the ChainID of Dymension
+	ChainIDDymension ChainID = 4007
+	// ChainIDProvenance is the ChainID of Provenance
+	ChainIDProvenance ChainID = 4008
+	// ChainIDNoble is the ChainID of Noble
+	ChainIDNoble ChainID = 4009
+	// ChainIDSepolia is the ChainID of Sepolia
+
+	// The Testnet only chains start at 10000.
+	ChainIDSepolia ChainID = 10002
+	// ChainIDArbitrumSepolia is the ChainID of Arbitrum on Sepolia
+	ChainIDArbitrumSepolia ChainID = 10003
+	// ChainIDBaseSepolia is the ChainID of Base on Sepolia
+	ChainIDBaseSepolia ChainID = 10004
+	// ChainIDOptimismSepolia is the ChainID of Optimism on Sepolia
+	ChainIDOptimismSepolia ChainID = 10005
+	// ChainIDHolesky is the ChainID of Holesky
+	ChainIDHolesky ChainID = 10006
+	// ChainIDPolygonSepolia is the ChainID of Polygon on Sepolia
+	ChainIDPolygonSepolia ChainID = 10007
+	// OBSOLETE: ChainIDMonadDevnet ChainID = 10008
 
 	// Minimum VAA size is derrived from the following assumptions:
 	//  HEADER
@@ -394,19 +642,12 @@ const (
 	// More details here: https://docs.wormholenetwork.com/wormhole/vaas
 	minHeadlessVAALength = 51 // HEADER
 	minVAALength         = 57 // HEADER + BODY
-	minBatchVAALength    = 94 // HEADER + BATCH
 
 	SupportedVAAVersion = 0x01
-	BatchVAAVersion     = 0x02
-
-	InternalTruncatedPayloadSafetyLimit = 1000
 )
 
 // UnmarshalBody deserializes the binary representation of a VAA's "BODY" properties
-// The BODY fields are common among multiple types of VAA - v1, v2 (BatchVAA), etc
-//
-// WARNING: UnmarshallBody will truncate payloads at 1000 bytes, this is done mainly to avoid denial of service
-//   - If you need to access the full payload, consider parsing VAA from Bytes instead of Unmarshal
+// The BODY fields are common among multiple types of VAA - v1, v2, etc
 func UnmarshalBody(data []byte, reader *bytes.Reader, v *VAA) (*VAA, error) {
 	unixSeconds := uint32(0)
 	if err := binary.Read(reader, binary.BigEndian, &unixSeconds); err != nil {
@@ -438,7 +679,7 @@ func UnmarshalBody(data []byte, reader *bytes.Reader, v *VAA) (*VAA, error) {
 
 	// Make sure to only read the payload if the VAA has one; VAAs may have a 0 length payload
 	if reader.Len() != 0 {
-		payload := make([]byte, InternalTruncatedPayloadSafetyLimit)
+		payload := make([]byte, reader.Len())
 		n, err := reader.Read(payload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read payload [%d]: %w", n, err)
@@ -496,189 +737,49 @@ func Unmarshal(data []byte) (*VAA, error) {
 	return UnmarshalBody(data, reader, v)
 }
 
-// UnmarshalBatch deserializes the binary representation of a BatchVAA
-func UnmarshalBatch(data []byte) (*BatchVAA, error) {
-	if len(data) < minBatchVAALength {
-		return nil, fmt.Errorf("BatchVAA.Observation is too short")
-	}
-	v := &BatchVAA{}
-
-	v.Version = data[0]
-	if v.Version != BatchVAAVersion {
-		return nil, fmt.Errorf("unsupported VAA version: %d", v.Version)
-	}
-
-	reader := bytes.NewReader(data[1:])
-
-	if err := binary.Read(reader, binary.BigEndian, &v.GuardianSetIndex); err != nil {
-		return nil, fmt.Errorf("failed to read guardian set index: %w", err)
-	}
-
-	lenSignatures, er := reader.ReadByte()
-	if er != nil {
-		return nil, fmt.Errorf("failed to read signature length")
-	}
-
-	v.Signatures = make([]*Signature, int(lenSignatures))
-	for i := 0; i < int(lenSignatures); i++ {
-		index, err := reader.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read validator index [%d]", i)
-		}
-
-		signature := [65]byte{}
-		if n, err := reader.Read(signature[:]); err != nil || n != 65 {
-			return nil, fmt.Errorf("failed to read signature [%d]: %w", i, err)
-		}
-
-		v.Signatures[i] = &Signature{
-			Index:     uint8(index),
-			Signature: signature,
-		}
-	}
-
-	lenHashes, err := reader.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read hashes length [%w]", err)
-	}
-	numHashes := int(lenHashes)
-
-	v.Hashes = make([]common.Hash, numHashes)
-	for i := 0; i < int(lenHashes); i++ {
-		hash := [32]byte{}
-		if n, err := reader.Read(hash[:]); err != nil || n != 32 {
-			return nil, fmt.Errorf("failed to read hash [%d]: %w", i, err)
-		}
-		v.Hashes[i] = common.BytesToHash(hash[:])
-	}
-
-	lenObservations, err := reader.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read observations length: %w", err)
-	}
-	numObservations := int(lenObservations)
-
-	if numHashes != numObservations {
-		// should never happen, check anyway
-		return nil, fmt.Errorf(
-			"failed unmarshaling BatchVAA, observations differs from hashes")
-	}
-
-	v.Observations = make([]*Observation, numObservations)
-	for i := 0; i < int(lenObservations); i++ {
-		index, err := reader.ReadByte()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read Observation index [%d]: %w", i, err)
-		}
-		obsvIndex := uint8(index)
-
-		obsvLength := uint32(0)
-		if err := binary.Read(reader, binary.BigEndian, &obsvLength); err != nil {
-			return nil, fmt.Errorf("failed to read Observation length: %w", err)
-		}
-		numBytes := int(obsvLength)
-
-		// ensure numBytes is within expected bounds before allocating arrays
-		// cannot be negative
-		if numBytes < 0 {
-			return nil, fmt.Errorf(
-				"failed to read Observation index: %v, byte length is negative", i)
-		}
-		// cannot be longer than what is left in the array
-		if numBytes > reader.Len() {
-			return nil, fmt.Errorf(
-				"failed to read Observation index: %v, byte length is erroneous", i)
-		}
-
-		obs := make([]byte, numBytes)
-		if n, err := reader.Read(obs[:]); err != nil || n == 0 {
-			return nil, fmt.Errorf("failed to read Observation bytes [%d]: %w", n, err)
-		}
-
-		// ensure the observation meets the minimum length of headless VAAs
-		if len(obs) < minHeadlessVAALength {
-			return nil, fmt.Errorf(
-				"BatchVAA.Observation is too short. Index: %v", obsvIndex)
-		}
-
-		// decode the observation, which is just the "BODY" fields of a v1 VAA
-		headless, err := UnmarshalBody(data, bytes.NewReader(obs[:]), &VAA{})
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Observation VAA. %w", err)
-		}
-
-		// check for malformed data - verify that the hash of the observation matches what was supplied
-		// the guardian has no interest in or use for observations after the batch has been signed, but still check
-		obsHash := headless.SigningMsg()
-		if obsHash != v.Hashes[obsvIndex] {
-			return nil, fmt.Errorf(
-				"BatchVAA Observation %v does not match supplied hash", obsvIndex)
-		}
-
-		v.Observations[i] = &Observation{
-			Index:       obsvIndex,
-			Observation: headless,
-		}
-	}
-
-	return v, nil
-}
-
 // signingBody returns the binary representation of the data that is relevant for signing and verifying the VAA
 func (v *VAA) signingBody() []byte {
 	return v.serializeBody()
 }
 
-// signingBody returns the binary representation of the data that is relevant for signing and verifying the VAA
-func (v *BatchVAA) signingBody() []byte {
-	buf := new(bytes.Buffer)
-
-	// add the VAA version
-	MustWrite(buf, binary.BigEndian, v.Version)
-
-	// create the hash array from the Observations of the BatchVAA
-	hashes := v.ObsvHashArray()
-
-	MustWrite(buf, binary.BigEndian, hashes)
-
-	return buf.Bytes()
-}
-
-// SigningMsg returns the hash of the signing body.
-func SigningMsg(data []byte) common.Hash {
+func doubleKeccak(bz []byte) common.Hash {
 	// In order to save space in the solana signature verification instruction, we hash twice so we only need to pass in
 	// the first hash (32 bytes) vs the full body data.
-	return crypto.Keccak256Hash(crypto.Keccak256Hash(data).Bytes())
+	return crypto.Keccak256Hash(crypto.Keccak256Hash(bz).Bytes())
 }
 
-// SigningMsg returns the hash of the signing body. This is used for signature generation and verification
-func (v *VAA) SigningMsg() common.Hash {
-	return SigningMsg(v.signingBody())
+// This is a temporary method to produce a vaa signing digest on raw bytes.
+// It is error prone and we should use `v.SigningDigest()` instead.
+// whenever possible.
+// This will be removed in a subsequent release.
+func DeprecatedSigningDigest(bz []byte) common.Hash {
+	return doubleKeccak(bz)
 }
 
-// SigningMsg returns the hash of the signing body. This is used for signature generation and verification
-func (v *BatchVAA) SigningMsg() common.Hash {
-	return SigningMsg(v.signingBody())
-}
-
-// ObsvHashArray creates an array of hashes of Observation.
-// hashes in the array have the index position of their Observation.Index.
-func (v *BatchVAA) ObsvHashArray() []common.Hash {
-	hashes := make([]common.Hash, len(v.Observations))
-	for _, msg := range v.Observations {
-		obsIndex := msg.Index
-		hashes[obsIndex] = msg.Observation.SigningMsg()
+// MessageSigningDigest returns the hash of the data prepended with it's signing prefix.
+// This is intending to be used for signing messages of different types from VAA's.
+// The message prefix helps protect from message collisions.
+func MessageSigningDigest(prefix []byte, data []byte) (common.Hash, error) {
+	if len(prefix) < 32 {
+		// Prefixes must be at least 32 bytes
+		// https://github.com/wormhole-foundation/wormhole/blob/main/whitepapers/0009_guardian_key.md
+		return common.Hash([32]byte{}), errors.New("prefix must be at least 32 bytes")
 	}
+	return crypto.Keccak256Hash(prefix[:], data), nil
+}
 
-	return hashes
+// SigningDigest returns the hash of the vaa hash to be signed directly.
+// This is used for signature generation and verification
+func (v *VAA) SigningDigest() common.Hash {
+	return doubleKeccak(v.signingBody())
 }
 
 // Verify Signature checks that the provided address matches the address that created the signature for the provided digest
 // Digest should be the output of SigningMsg(data).Bytes()
-func VerifySignature(digest []byte, signature *Signature, address common.Address) bool {
+// Should not be public as other message types should be verified using a message prefix.
+func verifySignature(vaa_digest []byte, signature *Signature, address common.Address) bool {
 	// retrieve the address that signed the data
-	pubKey, err := crypto.Ecrecover(digest, signature.Signature[:])
+	pubKey, err := crypto.Ecrecover(vaa_digest, signature.Signature[:])
 	if err != nil {
 		return false
 	}
@@ -689,7 +790,8 @@ func VerifySignature(digest []byte, signature *Signature, address common.Address
 }
 
 // Digest should be the output of SigningMsg(data).Bytes()
-func VerifySignatures(digest []byte, signatures []*Signature, addresses []common.Address) bool {
+// Should not be public as other message types should be verified using a message prefix.
+func verifySignatures(vaa_digest []byte, signatures []*Signature, addresses []common.Address) bool {
 	if len(addresses) < len(signatures) {
 		return false
 	}
@@ -710,7 +812,7 @@ func VerifySignatures(digest []byte, signatures []*Signature, addresses []common
 
 		// verify this signature
 		addr := addresses[sig.Index]
-		ok := VerifySignature(digest, sig, addr)
+		ok := verifySignature(vaa_digest, sig, addr)
 		if !ok {
 			return false
 		}
@@ -727,59 +829,28 @@ func VerifySignatures(digest []byte, signatures []*Signature, addresses []common
 	return true
 }
 
+// Operating on bytes directly is error prone.  We should use `vaa.VerifyingSignatures()` whenever possible.
+// This function will be removed in a subsequent release.
+func DeprecatedVerifySignatures(vaaBody []byte, signatures []*Signature, addresses []common.Address) bool {
+	vaaDigest := doubleKeccak(vaaBody)
+	return verifySignatures(vaaDigest[:], signatures, addresses)
+}
+
+func VerifyMessageSignature(prefix []byte, messageBody []byte, signatures *Signature, addresses common.Address) bool {
+	if len(prefix) < 32 {
+		return false
+	}
+	msgDigest, err := MessageSigningDigest(prefix, messageBody)
+	if err != nil {
+		return false
+	}
+	return verifySignature(msgDigest[:], signatures, addresses)
+}
+
 // VerifySignatures verifies the signature of the VAA given the signer addresses.
 // Returns true if the signatures were verified successfully.
 func (v *VAA) VerifySignatures(addresses []common.Address) bool {
-	return VerifySignatures(v.SigningMsg().Bytes(), v.Signatures, addresses)
-}
-
-// VerifySignatures verifies the signature of the BatchVAA given the signer addresses.
-// Returns true if the signatures were verified successfully.
-func (v *BatchVAA) VerifySignatures(addresses []common.Address) bool {
-	return VerifySignatures(v.SigningMsg().Bytes(), v.Signatures, addresses)
-}
-
-// Marshal returns the binary representation of the BatchVAA
-func (v *BatchVAA) Marshal() ([]byte, error) {
-	buf := new(bytes.Buffer)
-	MustWrite(buf, binary.BigEndian, v.Version)
-	MustWrite(buf, binary.BigEndian, v.GuardianSetIndex)
-
-	// Write signatures
-	MustWrite(buf, binary.BigEndian, uint8(len(v.Signatures)))
-	for _, sig := range v.Signatures {
-		MustWrite(buf, binary.BigEndian, sig.Index)
-		buf.Write(sig.Signature[:])
-	}
-
-	// Write Body
-	buf.Write(v.serializeBody())
-
-	return buf.Bytes(), nil
-}
-
-// Serializes the body of the BatchVAA.
-func (v *BatchVAA) serializeBody() []byte {
-	buf := new(bytes.Buffer)
-
-	hashes := v.ObsvHashArray()
-
-	MustWrite(buf, binary.BigEndian, uint8(len(hashes)))
-	MustWrite(buf, binary.BigEndian, hashes)
-
-	MustWrite(buf, binary.BigEndian, uint8(len(v.Observations)))
-	for _, obsv := range v.Observations {
-
-		MustWrite(buf, binary.BigEndian, uint8(obsv.Index))
-
-		obsvBytes := obsv.Observation.serializeBody()
-
-		lenBytes := len(obsvBytes)
-		MustWrite(buf, binary.BigEndian, uint32(lenBytes))
-		buf.Write(obsvBytes)
-	}
-
-	return buf.Bytes()
+	return verifySignatures(v.SigningDigest().Bytes(), v.Signatures, addresses)
 }
 
 // Verify is a function on the VAA that takes a complete set of guardian keys as input and attempts certain checks with respect to this guardian.
@@ -791,7 +862,7 @@ func (v *BatchVAA) serializeBody() []byte {
 // - The signatures in the VAA is verified against the guardian set keys.
 func (v *VAA) Verify(addresses []common.Address) error {
 	if addresses == nil {
-		return errors.New("No addresses were provided")
+		return errors.New("no addresses were provided")
 	}
 
 	// Check if VAA doesn't have any signatures
@@ -849,36 +920,9 @@ func (v *VAA) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// implement encoding.BinaryMarshaler interface for BatchVAA struct
-func (b BatchVAA) MarshalBinary() ([]byte, error) {
-	return b.Marshal()
-}
-
-// implement encoding.BinaryUnmarshaler interface for BatchVAA struct
-func (b *BatchVAA) UnmarshalBinary(data []byte) error {
-	batch, err := UnmarshalBatch(data)
-	if err != nil {
-		return err
-	}
-
-	// derefernce the stuct created by Unmarshal, and assign it to the method's context
-	*b = *batch
-	return nil
-}
-
 // MessageID returns a human-readable emitter_chain/emitter_address/sequence tuple.
 func (v *VAA) MessageID() string {
 	return fmt.Sprintf("%d/%s/%d", v.EmitterChain, v.EmitterAddress, v.Sequence)
-}
-
-// BatchID returns a human-readable emitter_chain/transaction_hex
-func (v *BatchVAA) BatchID() string {
-	if len(v.Observations) == 0 {
-		// cant have a batch without Observations, but check just be safe
-		panic("Cannot create a BatchID from BatchVAA with no Observations.")
-	}
-	nonce := v.Observations[0].Observation.Nonce
-	return fmt.Sprintf("%d/%s/%d", v.EmitterChain, hex.EncodeToString(v.TransactionID.Bytes()), nonce)
 }
 
 // UniqueID normalizes the ID of the VAA (any type) for the Attestation interface
@@ -887,24 +931,9 @@ func (v *VAA) UniqueID() string {
 	return v.MessageID()
 }
 
-// UniqueID returns the BatchID that uniquely identifies the Attestation
-func (b *BatchVAA) UniqueID() string {
-	return b.BatchID()
-}
-
-// GetTransactionID implements the processor.Batch interface for *BatchVAA.
-func (v *BatchVAA) GetTransactionID() common.Hash {
-	return v.TransactionID
-}
-
 // HexDigest returns the hex-encoded digest.
 func (v *VAA) HexDigest() string {
-	return hex.EncodeToString(v.SigningMsg().Bytes())
-}
-
-// HexDigest returns the hex-encoded digest.
-func (b *BatchVAA) HexDigest() string {
-	return hex.EncodeToString(b.SigningMsg().Bytes())
+	return hex.EncodeToString(v.SigningDigest().Bytes())
 }
 
 /*
@@ -925,23 +954,7 @@ func (v *VAA) serializeBody() []byte {
 }
 
 func (v *VAA) AddSignature(key *ecdsa.PrivateKey, index uint8) {
-	sig, err := crypto.Sign(v.SigningMsg().Bytes(), key)
-	if err != nil {
-		panic(err)
-	}
-	sigData := [65]byte{}
-	copy(sigData[:], sig)
-
-	v.Signatures = append(v.Signatures, &Signature{
-		Index:     index,
-		Signature: sigData,
-	})
-}
-
-// creates signature of BatchVAA.Hashes and adds it to BatchVAA.Signatures.
-func (v *BatchVAA) AddSignature(key *ecdsa.PrivateKey, index uint8) {
-
-	sig, err := crypto.Sign(v.SigningMsg().Bytes(), key)
+	sig, err := crypto.Sign(v.SigningDigest().Bytes(), key)
 	if err != nil {
 		panic(err)
 	}
@@ -1008,11 +1021,6 @@ func DecodeTransferPayloadHdr(payload []byte) (*TransferPayloadHdr, error) {
 
 // GetEmitterChain implements the processor.Observation interface for *VAA.
 func (v *VAA) GetEmitterChain() ChainID {
-	return v.EmitterChain
-}
-
-// GetEmitterChain implements the processor.Batch interface for *BatchVAA.
-func (v *BatchVAA) GetEmitterChain() ChainID {
 	return v.EmitterChain
 }
 

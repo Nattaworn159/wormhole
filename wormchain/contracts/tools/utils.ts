@@ -1,4 +1,3 @@
-
 export function concatArrays(arrays: Uint8Array[]): Uint8Array {
     const totalLength = arrays.reduce((accum, x) => accum + x.length, 0);
     const result = new Uint8Array(totalLength);

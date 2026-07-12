@@ -33,14 +33,37 @@ func (k Keeper) CalculateQuorum(ctx sdk.Context, guardianSetIndex uint32) (int, 
 		return 0, nil, types.ErrGuardianSetNotFound
 	}
 
-	if 0 < guardianSet.ExpirationTime && guardianSet.ExpirationTime < uint64(ctx.BlockTime().Unix()) {
-		return 0, nil, types.ErrGuardianSetExpired
+	isMainnet := ctx.ChainID() == "wormchain"
+	isTestnet := ctx.ChainID() == "wormchain-testnet-0"
+
+	// We enable the new conditional approximately a week after block 6,961,447, which is
+	// calculated by dividing the number of seconds in a week by the average block time (~6s).
+	// The average block time may change in the future, so future calculations should be based
+	// on the actual block times at the time of the change.
+	// On testnet, the block height is different (and so is the block time
+	// slightly). There, we switch over at 2pm UTC 07/02/2024.
+	// On mainnet, the average block time is 5.77 seconds.
+	// We are targeting the cutover to happen on 5/29/2024 ~8am UTC.
+	// At 5.77 blocks/second, this is ~127,279 blocks from 5/20/2024 at 8pm UTC, which had a block height of 8,503,027.
+	// Therefore, 8,503,027 + 127,279 = 8,630,306
+	if (isMainnet && ctx.BlockHeight() < 8630306) || (isTestnet && ctx.BlockHeight() < 7468418) {
+		// old
+		if 0 < guardianSet.ExpirationTime && guardianSet.ExpirationTime < uint64(ctx.BlockTime().Unix()) {
+			return 0, nil, types.ErrGuardianSetExpired
+		}
+	} else {
+		// new
+		latestGuardianSetIndex := k.GetLatestGuardianSetIndex(ctx)
+
+		if guardianSet.Index != latestGuardianSetIndex && guardianSet.ExpirationTime < uint64(ctx.BlockTime().Unix()) {
+			return 0, nil, types.ErrGuardianSetExpired
+		}
 	}
 
 	return CalculateQuorum(len(guardianSet.Keys)), &guardianSet, nil
 }
 
-func (k Keeper) VerifySignature(ctx sdk.Context, data []byte, guardianSetIndex uint32, signature *vaa.Signature) error {
+func (k Keeper) VerifyMessageSignature(ctx sdk.Context, prefix []byte, data []byte, guardianSetIndex uint32, signature *vaa.Signature) error {
 	// Calculate quorum and retrieve guardian set
 	_, guardianSet, err := k.CalculateQuorum(ctx, guardianSetIndex)
 	if err != nil {
@@ -53,7 +76,7 @@ func (k Keeper) VerifySignature(ctx sdk.Context, data []byte, guardianSetIndex u
 		return types.ErrGuardianIndexOutOfBounds
 	}
 
-	ok := vaa.VerifySignature(data, signature, addresses[signature.Index])
+	ok := vaa.VerifyMessageSignature(prefix, data, signature, addresses[signature.Index])
 	if !ok {
 		return types.ErrSignaturesInvalid
 	}
@@ -61,7 +84,7 @@ func (k Keeper) VerifySignature(ctx sdk.Context, data []byte, guardianSetIndex u
 	return nil
 }
 
-func (k Keeper) VerifyQuorum(ctx sdk.Context, data []byte, guardianSetIndex uint32, signatures []*vaa.Signature) error {
+func (k Keeper) DeprecatedVerifyVaa(ctx sdk.Context, vaaBody []byte, guardianSetIndex uint32, signatures []*vaa.Signature) error {
 	// Calculate quorum and retrieve guardian set
 	quorum, guardianSet, err := k.CalculateQuorum(ctx, guardianSetIndex)
 	if err != nil {
@@ -72,7 +95,7 @@ func (k Keeper) VerifyQuorum(ctx sdk.Context, data []byte, guardianSetIndex uint
 	}
 
 	// Verify signatures
-	ok := vaa.VerifySignatures(data, signatures, guardianSet.KeysAsAddresses())
+	ok := vaa.DeprecatedVerifySignatures(vaaBody, signatures, guardianSet.KeysAsAddresses())
 	if !ok {
 		return types.ErrSignaturesInvalid
 	}
@@ -80,8 +103,23 @@ func (k Keeper) VerifyQuorum(ctx sdk.Context, data []byte, guardianSetIndex uint
 	return nil
 }
 
-func (k Keeper) VerifyVAA(ctx sdk.Context, vaa *vaa.VAA) error {
-	return k.VerifyQuorum(ctx, vaa.SigningMsg().Bytes(), vaa.GuardianSetIndex, vaa.Signatures)
+func (k Keeper) VerifyVAA(ctx sdk.Context, v *vaa.VAA) error {
+	// Calculate quorum and retrieve guardian set
+	quorum, guardianSet, err := k.CalculateQuorum(ctx, v.GuardianSetIndex)
+	if err != nil {
+		return err
+	}
+	if len(v.Signatures) < quorum {
+		return types.ErrNoQuorum
+	}
+
+	// Verify signatures
+	ok := v.VerifySignatures(guardianSet.KeysAsAddresses())
+	if !ok {
+		return types.ErrSignaturesInvalid
+	}
+
+	return nil
 }
 
 // Verify a governance VAA:

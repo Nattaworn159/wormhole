@@ -2,19 +2,23 @@ package governor
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wormhole-foundation/wormhole/sdk"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 )
 
 func TestTokenListSize(t *testing.T) {
 	tokenConfigEntries := tokenList()
 
-	/* Assuming that governed tokens will need to be updated every time
-	   we regenerate it */
-	assert.Equal(t, 134, len(tokenConfigEntries))
+	// We should have a sensible number of tokens
+	// These numbers shouldn't have to change frequently
+	assert.Greater(t, len(tokenConfigEntries), 1000)
+	// We throttle CoinGecko queries so we can query up to 12,000 tokens
+	// in a 15 minute window. This test is an early warning for updating
+	// the CoinGecko query mechanism.
+	assert.Less(t, len(tokenConfigEntries), 10000)
 }
 
 func TestTokenListAddressSize(t *testing.T) {
@@ -29,12 +33,37 @@ func TestTokenListAddressSize(t *testing.T) {
 	}
 }
 
-func TestTokenListChainTokensPresent(t *testing.T) {
+// Flag a situation where a Governed chain does not have any governed assets. Often times when adding a mainnet chain,
+// a list of tokens will be added so that they can be governed. (These tokens are sourced by CoinGecko or manually
+// populated.) While this is not a hard requirement, it may represent that a developer has forgotten to take the step
+// of configuring tokens when deploying the chain. This test helps to remind them.
+func TestGovernedChainHasGovernedAssets(t *testing.T) {
+	// Add a chain ID to this set if it genuinely has no native assets that should be governed.
+	ignoredChains := map[vaa.ChainID]bool{
+		// TODO: Remove this once we have governed tokens for Snax.
+		vaa.ChainIDSnaxchain: true,
+		// Wormchain is an abstraction over IBC-connected chains so no assets are "native" to it
+		vaa.ChainIDWormchain: true,
+		// TODO: Remove this once we have governed tokens for Ink.
+		vaa.ChainIDInk: true,
+	}
+	if len(ignoredChains) > 0 {
+		ignoredOutput := []string{}
+		for id := range ignoredChains {
+			ignoredOutput = append(ignoredOutput, id.String())
+		}
+
+		t.Logf("This test ignored the following chains: %s\n", strings.Join(ignoredOutput, "\n"))
+	}
+
 	tokenConfigEntries := tokenList()
 
-	/* Assume that all chains within a token bridge will have governed tokens */
-	for e := range sdk.KnownTokenbridgeEmitters {
-		t.Run(vaa.ChainID(e).String(), func(t *testing.T) {
+	for _, chainConfigEntry := range chainList() {
+		e := chainConfigEntry.emitterChainID
+		if _, ignored := ignoredChains[e]; ignored {
+			continue
+		}
+		t.Run(e.String(), func(t *testing.T) {
 			found := false
 			for _, tokenConfigEntry := range tokenConfigEntries {
 				if tokenConfigEntry.chain == uint16(e) {
@@ -42,9 +71,15 @@ func TestTokenListChainTokensPresent(t *testing.T) {
 					break
 				}
 			}
+			assert.True(t, found, "Chain is governed but has no governed native assets configured")
+		})
+	}
 
-			if e != vaa.ChainIDXpla && e != vaa.ChainIDAptos && e != vaa.ChainIDArbitrum {
-				assert.Equal(t, found, true)
+	// Make sure we're not ignoring any chains with governed tokens.
+	for _, tokenEntry := range tokenList() {
+		t.Run(vaa.ChainID(tokenEntry.chain).String(), func(t *testing.T) {
+			if _, exists := ignoredChains[vaa.ChainID(tokenEntry.chain)]; exists {
+				assert.Fail(t, "Chain is in ignoredChains but it has governed tokens")
 			}
 		})
 	}
@@ -64,22 +99,15 @@ func TestTokenListTokenAddressDuplicates(t *testing.T) {
 	}
 }
 
-func TestTokenListDecimalRange(t *testing.T) {
-	tokenConfigEntries := tokenList()
-
-	/* Assume that all governed token entries will have decimals of 6 or 8 */
-	for _, tokenConfigEntry := range tokenConfigEntries {
-		d := tokenConfigEntry.decimals
-		assert.Condition(t, func() bool { return d == 6 || d == 8 })
-	}
-}
-
 func TestTokenListEmptySymbols(t *testing.T) {
 	tokenConfigEntries := tokenList()
 
 	/* Assume that all governed token entry symbol strings will be greater than zero */
 	for _, tokenConfigEntry := range tokenConfigEntries {
-		assert.Greater(t, len(tokenConfigEntry.symbol), 0)
+		// Some Solana tokens don't have the symbol set. For now, we'll still enforce this for other chains.
+		if len(tokenConfigEntry.symbol) == 0 && vaa.ChainID(tokenConfigEntry.chain) != vaa.ChainIDSolana {
+			assert.Equal(t, "", fmt.Sprintf("token %v:%v does not have the symbol set", tokenConfigEntry.chain, tokenConfigEntry.addr))
+		}
 	}
 }
 

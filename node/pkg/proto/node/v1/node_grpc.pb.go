@@ -34,6 +34,8 @@ type NodePrivilegedServiceClient interface {
 	// using the node's guardian key. The network rate limits these requests to one per second.
 	// Requests at higher rates will fail silently.
 	SendObservationRequest(ctx context.Context, in *SendObservationRequestRequest, opts ...grpc.CallOption) (*SendObservationRequestResponse, error)
+	// ReobserveWithEndpoint performs a local reobservation request using the specified endpoint.
+	ReobserveWithEndpoint(ctx context.Context, in *ReobserveWithEndpointRequest, opts ...grpc.CallOption) (*ReobserveWithEndpointResponse, error)
 	// ChainGovernorStatus displays the status of the chain governor.
 	ChainGovernorStatus(ctx context.Context, in *ChainGovernorStatusRequest, opts ...grpc.CallOption) (*ChainGovernorStatusResponse, error)
 	// ChainGovernorReload clears the chain governor history and reloads it from the database.
@@ -48,6 +50,10 @@ type NodePrivilegedServiceClient interface {
 	PurgePythNetVaas(ctx context.Context, in *PurgePythNetVaasRequest, opts ...grpc.CallOption) (*PurgePythNetVaasResponse, error)
 	// SignExistingVAA signs an existing VAA for a new guardian set using the local guardian key.
 	SignExistingVAA(ctx context.Context, in *SignExistingVAARequest, opts ...grpc.CallOption) (*SignExistingVAAResponse, error)
+	// DumpRPCs returns the RPCs being used by the guardian
+	DumpRPCs(ctx context.Context, in *DumpRPCsRequest, opts ...grpc.CallOption) (*DumpRPCsResponse, error)
+	// GetMissingVAAs returns the VAAs from a cloud function that need to be reobserved.
+	GetAndObserveMissingVAAs(ctx context.Context, in *GetAndObserveMissingVAAsRequest, opts ...grpc.CallOption) (*GetAndObserveMissingVAAsResponse, error)
 }
 
 type nodePrivilegedServiceClient struct {
@@ -79,6 +85,15 @@ func (c *nodePrivilegedServiceClient) FindMissingMessages(ctx context.Context, i
 func (c *nodePrivilegedServiceClient) SendObservationRequest(ctx context.Context, in *SendObservationRequestRequest, opts ...grpc.CallOption) (*SendObservationRequestResponse, error) {
 	out := new(SendObservationRequestResponse)
 	err := c.cc.Invoke(ctx, "/node.v1.NodePrivilegedService/SendObservationRequest", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodePrivilegedServiceClient) ReobserveWithEndpoint(ctx context.Context, in *ReobserveWithEndpointRequest, opts ...grpc.CallOption) (*ReobserveWithEndpointResponse, error) {
+	out := new(ReobserveWithEndpointResponse)
+	err := c.cc.Invoke(ctx, "/node.v1.NodePrivilegedService/ReobserveWithEndpoint", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +163,24 @@ func (c *nodePrivilegedServiceClient) SignExistingVAA(ctx context.Context, in *S
 	return out, nil
 }
 
+func (c *nodePrivilegedServiceClient) DumpRPCs(ctx context.Context, in *DumpRPCsRequest, opts ...grpc.CallOption) (*DumpRPCsResponse, error) {
+	out := new(DumpRPCsResponse)
+	err := c.cc.Invoke(ctx, "/node.v1.NodePrivilegedService/DumpRPCs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodePrivilegedServiceClient) GetAndObserveMissingVAAs(ctx context.Context, in *GetAndObserveMissingVAAsRequest, opts ...grpc.CallOption) (*GetAndObserveMissingVAAsResponse, error) {
+	out := new(GetAndObserveMissingVAAsResponse)
+	err := c.cc.Invoke(ctx, "/node.v1.NodePrivilegedService/GetAndObserveMissingVAAs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodePrivilegedServiceServer is the server API for NodePrivilegedService service.
 // All implementations must embed UnimplementedNodePrivilegedServiceServer
 // for forward compatibility
@@ -168,6 +201,8 @@ type NodePrivilegedServiceServer interface {
 	// using the node's guardian key. The network rate limits these requests to one per second.
 	// Requests at higher rates will fail silently.
 	SendObservationRequest(context.Context, *SendObservationRequestRequest) (*SendObservationRequestResponse, error)
+	// ReobserveWithEndpoint performs a local reobservation request using the specified endpoint.
+	ReobserveWithEndpoint(context.Context, *ReobserveWithEndpointRequest) (*ReobserveWithEndpointResponse, error)
 	// ChainGovernorStatus displays the status of the chain governor.
 	ChainGovernorStatus(context.Context, *ChainGovernorStatusRequest) (*ChainGovernorStatusResponse, error)
 	// ChainGovernorReload clears the chain governor history and reloads it from the database.
@@ -182,6 +217,10 @@ type NodePrivilegedServiceServer interface {
 	PurgePythNetVaas(context.Context, *PurgePythNetVaasRequest) (*PurgePythNetVaasResponse, error)
 	// SignExistingVAA signs an existing VAA for a new guardian set using the local guardian key.
 	SignExistingVAA(context.Context, *SignExistingVAARequest) (*SignExistingVAAResponse, error)
+	// DumpRPCs returns the RPCs being used by the guardian
+	DumpRPCs(context.Context, *DumpRPCsRequest) (*DumpRPCsResponse, error)
+	// GetMissingVAAs returns the VAAs from a cloud function that need to be reobserved.
+	GetAndObserveMissingVAAs(context.Context, *GetAndObserveMissingVAAsRequest) (*GetAndObserveMissingVAAsResponse, error)
 	mustEmbedUnimplementedNodePrivilegedServiceServer()
 }
 
@@ -197,6 +236,9 @@ func (UnimplementedNodePrivilegedServiceServer) FindMissingMessages(context.Cont
 }
 func (UnimplementedNodePrivilegedServiceServer) SendObservationRequest(context.Context, *SendObservationRequestRequest) (*SendObservationRequestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendObservationRequest not implemented")
+}
+func (UnimplementedNodePrivilegedServiceServer) ReobserveWithEndpoint(context.Context, *ReobserveWithEndpointRequest) (*ReobserveWithEndpointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReobserveWithEndpoint not implemented")
 }
 func (UnimplementedNodePrivilegedServiceServer) ChainGovernorStatus(context.Context, *ChainGovernorStatusRequest) (*ChainGovernorStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ChainGovernorStatus not implemented")
@@ -218,6 +260,12 @@ func (UnimplementedNodePrivilegedServiceServer) PurgePythNetVaas(context.Context
 }
 func (UnimplementedNodePrivilegedServiceServer) SignExistingVAA(context.Context, *SignExistingVAARequest) (*SignExistingVAAResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SignExistingVAA not implemented")
+}
+func (UnimplementedNodePrivilegedServiceServer) DumpRPCs(context.Context, *DumpRPCsRequest) (*DumpRPCsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DumpRPCs not implemented")
+}
+func (UnimplementedNodePrivilegedServiceServer) GetAndObserveMissingVAAs(context.Context, *GetAndObserveMissingVAAsRequest) (*GetAndObserveMissingVAAsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAndObserveMissingVAAs not implemented")
 }
 func (UnimplementedNodePrivilegedServiceServer) mustEmbedUnimplementedNodePrivilegedServiceServer() {}
 
@@ -282,6 +330,24 @@ func _NodePrivilegedService_SendObservationRequest_Handler(srv interface{}, ctx 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NodePrivilegedServiceServer).SendObservationRequest(ctx, req.(*SendObservationRequestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodePrivilegedService_ReobserveWithEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReobserveWithEndpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodePrivilegedServiceServer).ReobserveWithEndpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/node.v1.NodePrivilegedService/ReobserveWithEndpoint",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodePrivilegedServiceServer).ReobserveWithEndpoint(ctx, req.(*ReobserveWithEndpointRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -412,6 +478,42 @@ func _NodePrivilegedService_SignExistingVAA_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodePrivilegedService_DumpRPCs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DumpRPCsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodePrivilegedServiceServer).DumpRPCs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/node.v1.NodePrivilegedService/DumpRPCs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodePrivilegedServiceServer).DumpRPCs(ctx, req.(*DumpRPCsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodePrivilegedService_GetAndObserveMissingVAAs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAndObserveMissingVAAsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodePrivilegedServiceServer).GetAndObserveMissingVAAs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/node.v1.NodePrivilegedService/GetAndObserveMissingVAAs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodePrivilegedServiceServer).GetAndObserveMissingVAAs(ctx, req.(*GetAndObserveMissingVAAsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodePrivilegedService_ServiceDesc is the grpc.ServiceDesc for NodePrivilegedService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -430,6 +532,10 @@ var NodePrivilegedService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendObservationRequest",
 			Handler:    _NodePrivilegedService_SendObservationRequest_Handler,
+		},
+		{
+			MethodName: "ReobserveWithEndpoint",
+			Handler:    _NodePrivilegedService_ReobserveWithEndpoint_Handler,
 		},
 		{
 			MethodName: "ChainGovernorStatus",
@@ -458,6 +564,14 @@ var NodePrivilegedService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SignExistingVAA",
 			Handler:    _NodePrivilegedService_SignExistingVAA_Handler,
+		},
+		{
+			MethodName: "DumpRPCs",
+			Handler:    _NodePrivilegedService_DumpRPCs_Handler,
+		},
+		{
+			MethodName: "GetAndObserveMissingVAAs",
+			Handler:    _NodePrivilegedService_GetAndObserveMissingVAAs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

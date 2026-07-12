@@ -1151,7 +1151,7 @@ class PortalCore:
             off += 2
             ret["Fee"] = vaa[off:(off + 32)].hex()
 
-        if int.from_bytes((vaa[off:off+1]), "big") == 3:
+        if len(vaa[off:]) > 133 and int.from_bytes((vaa[off:off+1]), "big") == 3:
             ret["Meta"] = "TokenBridge Transfer With Payload"
             ret["Type"] = int.from_bytes((vaa[off:off+1]), "big")
             off += 1
@@ -1412,9 +1412,9 @@ class PortalCore:
         self.INDEXER_ADDRESS = "https://mainnet-idx.algonode.cloud"
         self.coreid = 842125965
         self.tokenid = 842126029
-        if self.args.coreid != 4:
+        if self.args.coreid != 1004:
             self.coreid = self.args.coreid
-        if self.args.tokenid != 6:
+        if self.args.tokenid != 1006:
             self.tokenid = self.args.tokenid
 
     def setup_args(self) -> None:
@@ -1442,8 +1442,8 @@ class PortalCore:
         parser.add_argument('--token_approve', type=str, help='token approve teal', default="teal/token_approve.teal")
         parser.add_argument('--token_clear', type=str, help='token clear teal', default="teal/token_clear.teal")
 
-        parser.add_argument('--coreid', type=int, help='core contract', default=4)
-        parser.add_argument('--tokenid', type=int, help='token bridge contract', default=6)
+        parser.add_argument('--coreid', type=int, help='core contract', default=1004)
+        parser.add_argument('--tokenid', type=int, help='token bridge contract', default=1006)
         parser.add_argument('--devnet', action='store_true', help='setup devnet')
         parser.add_argument('--boot', action='store_true', help='bootstrap')
         parser.add_argument('--upgradePayload', action='store_true', help='gen the upgrade payload for the guardians to sign')

@@ -97,7 +97,7 @@ set up with all the necessary dependencies. This is the command that runs in CI.
 Simply run
 
 ``` sh
-worm start-validator aptos
+worm aptos start-validator
 ```
 
 which will start a local aptos validator with an RPC endpoint at `0.0.0.0:8080`
@@ -124,8 +124,8 @@ run the deploy script again. However, a better way is to run one of the followin
 
 ``` sh
 scripts $ ./upgrade devnet Core # for upgrading the wormhole contract
-scripts $ ./upgrade devnet TokenBridge # for upgarding the token bridge contract
-scripts $ ./upgrade devnet NFTBridge # for upgarding the NFT bridge contract
+scripts $ ./upgrade devnet TokenBridge # for upgrading the token bridge contract
+scripts $ ./upgrade devnet NFTBridge # for upgrading the NFT bridge contract
 ```
 
 Behind the scenes, these scripts exercise the whole contract upgrade code path
@@ -215,7 +215,7 @@ simpler for users and integrators.
 
 `signer` objects can also be used for access control, because the existence of a
 `signer` value with a given address proves that the address authorised that
-transaction. The key observation is that a `signer` is an unforgable token of
+transaction. The key observation is that a `signer` is an unforgeable token of
 authority, also known as a _capability_. The issue is, as described in the above
 section, is that the `signer` capability is too general, as it can authorise
 arbitrary actions on behalf of the user. For this reason, we don't use `signer`s
@@ -335,7 +335,3 @@ single entity having full control over the contracts, the contracts need to be
 their own signing authority. For details on how this is implemented, see
 [deployer.move](./deployer/sources/deployer.move) and
 [contract_upgrade.move](./wormhole/sources/contract_upgrade.move).
-
-## Newtypes
-
-TODO

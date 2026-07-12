@@ -1,7 +1,5 @@
+use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Binary, Uint128};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use terraswap::asset::{Asset, AssetInfo};
 
 use crate::token_address::{ExternalTokenId, TokenId};
 
@@ -9,7 +7,7 @@ type HumanAddr = String;
 
 /// The instantiation parameters of the token bridge contract. See
 /// [`crate::state::ConfigInfo`] for more details on what these fields mean.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub gov_chain: u16,
     pub gov_address: Binary,
@@ -23,8 +21,7 @@ pub struct InstantiateMsg {
     pub native_decimals: u8,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     RegisterAssetHook {
         chain: u16,
@@ -68,28 +65,30 @@ pub enum ExecuteMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct MigrateMsg {}
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
+#[derive(QueryResponses)]
 pub enum QueryMsg {
+    #[returns(WrappedRegistryResponse)]
     WrappedRegistry { chain: u16, address: Binary },
+    #[returns(TransferInfoResponse)]
     TransferInfo { vaa: Binary },
+    #[returns(ExternalIdResponse)]
     ExternalId { external_id: Binary },
+    #[returns(IsVaaRedeemedResponse)]
     IsVaaRedeemed { vaa: Binary },
+    #[returns(ChainRegistrationResponse)]
     ChainRegistration { chain: u16 },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct WrappedRegistryResponse {
     pub address: HumanAddr,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct TransferInfoResponse {
     pub amount: Uint128,
     pub token_address: [u8; 32],
@@ -100,20 +99,45 @@ pub struct TransferInfoResponse {
     pub payload: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct ExternalIdResponse {
     pub token_id: TokenId,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct IsVaaRedeemedResponse {
     pub is_redeemed: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct ChainRegistrationResponse {
     pub address: Binary,
+}
+
+#[cw_serde]
+pub struct CompleteTransferResponse {
+    // All addresses are bech32-encoded strings.
+
+    // contract address if this minted or unlocked a cw20, otherwise none
+    pub contract: Option<String>,
+    // denom if this unlocked a native token, otherwise none
+    pub denom: Option<String>,
+    pub recipient: String,
+    pub amount: Uint128,
+    pub relayer: String,
+    pub fee: Uint128,
+}
+
+#[cw_serde]
+pub struct Asset {
+    pub info: AssetInfo,
+    pub amount: Uint128,
+}
+
+/// AssetInfo contract_addr is usually passed from the cw20 hook
+/// so we can trust the contract_addr is properly validated.
+#[cw_serde]
+pub enum AssetInfo {
+    Token { contract_addr: String },
+    NativeToken { denom: String },
 }

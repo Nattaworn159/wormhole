@@ -65,7 +65,7 @@ func TestVerifySignature(t *testing.T) {
 		Payload:          []byte("abcd"),
 	}
 
-	data := v.SigningMsg()
+	data := v.SigningDigest()
 
 	key, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
@@ -91,7 +91,8 @@ func TestBodyRegisterChain_Serialize(t *testing.T) {
 		EmitterAddress: Address{1, 2, 3, 4},
 	}
 
-	data := msg.Serialize()
+	data, err := msg.Serialize()
+	require.NoError(t, err)
 	require.Equal(t, "000000000000000000000000000000000000000000000000000000000000000001000000080102030400000000000000000000000000000000000000000000000000000000", hex.EncodeToString(data))
 }
 

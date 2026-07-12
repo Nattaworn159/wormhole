@@ -12,6 +12,9 @@ import (
 )
 
 var (
+	// TODO is a hack to support running multiple guardians in one process;
+	// This package should be rewritten to support multiple registries in one process instead of using a global registry
+	NoPanic  = false
 	mu       = sync.Mutex{}
 	registry = map[string]bool{}
 )
@@ -21,20 +24,23 @@ type Component string
 // RegisterComponent registers the given component name such that it is required to be ready for the global check to succeed.
 func RegisterComponent(component Component) {
 	mu.Lock()
+	defer mu.Unlock()
 	if _, ok := registry[string(component)]; ok {
-		panic("component already registered")
+		if !NoPanic {
+			panic("component already registered")
+		}
+		return
 	}
 	registry[string(component)] = false
-	mu.Unlock()
 }
 
 // SetReady sets the given global component state.
 func SetReady(component Component) {
 	mu.Lock()
+	defer mu.Unlock()
 	if !registry[string(component)] {
 		registry[string(component)] = true
 	}
-	mu.Unlock()
 }
 
 // Handler returns a net/http handler for the readiness check. It returns 200 OK if all components are ready,
@@ -54,6 +60,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mu.Lock()
+	defer mu.Unlock()
 	for k, v := range registry {
 		_, err = fmt.Fprintf(resp, "%s\t%v\n", k, v)
 		if err != nil {
@@ -64,7 +71,6 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 			ready = false
 		}
 	}
-	mu.Unlock()
 
 	if !ready {
 		w.WriteHeader(http.StatusPreconditionFailed)

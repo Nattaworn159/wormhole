@@ -1,10 +1,10 @@
-import { beforeAll, afterAll, describe, expect, test } from "@jest/globals";
+import { beforeAll, describe, expect, test } from "@jest/globals";
 import {
-  isTxError,
   LCDClient,
   MnemonicKey,
   Msg,
   Wallet,
+  isTxError,
 } from "@terra-money/terra.js";
 import { ethers } from "ethers";
 import { parseUnits } from "ethers/lib/utils";
@@ -36,12 +36,11 @@ import {
   TERRA2_NODE_URL,
   TERRA2_PRIVATE_KEY,
   TERRA_CHAIN_ID,
-  TERRA_GAS_PRICES_URL,
   TERRA_NODE_URL,
   TERRA_PRIVATE_KEY2,
   TEST_ERC20,
-} from "./consts";
-import { getSignedVAABySequence, waitForTerraExecution } from "./helpers";
+} from "./utils/consts";
+import { getSignedVAABySequence, waitForTerraExecution } from "./utils/helpers";
 
 const lcd = new LCDClient({
   URL: TERRA2_NODE_URL,
@@ -62,7 +61,7 @@ const terraClassicWallet = lcdClassic.wallet(
 );
 const terraClassicWalletAddress = terraClassicWallet.key.accAddress;
 
-const provider = new ethers.providers.WebSocketProvider(ETH_NODE_URL);
+const provider = new ethers.providers.JsonRpcProvider(ETH_NODE_URL);
 const signer = new ethers.Wallet(ETH_PRIVATE_KEY2, provider);
 const ethEmitterAddress = getEmitterAddressEth(
   CONTRACTS.DEVNET.ethereum.token_bridge
@@ -77,10 +76,6 @@ beforeAll(async () => {
   terraEmitterAddress = await getEmitterAddressTerra(
     CONTRACTS.DEVNET.terra2.token_bridge
   );
-});
-
-afterAll(async () => {
-  provider.destroy();
 });
 
 const terraBroadcastAndWaitForExecution = async (
@@ -180,6 +175,7 @@ describe("Terra Integration Tests", () => {
       signer,
       TEST_ERC20
     );
+    await provider.send("anvil_mine", ["0x40"]); // 64 blocks should get the above block to `finalized`
     const attestSignedVaa = await ethParseLogAndGetSignedVaa(attestReceipt);
     const createWrappedMsg = await createWrappedOnTerra(
       CONTRACTS.DEVNET.terra2.token_bridge,
@@ -202,6 +198,7 @@ describe("Terra Integration Tests", () => {
       CHAIN_ID_TERRA2,
       tryNativeToUint8Array(terraWalletAddress, CHAIN_ID_TERRA2)
     );
+    await provider.send("anvil_mine", ["0x40"]); // 64 blocks should get the above block to `finalized`
     const transferSignedVaa = await ethParseLogAndGetSignedVaa(transferReceipt);
     const redeemMsg = await redeemOnTerra(
       CONTRACTS.DEVNET.terra2.token_bridge,
@@ -272,8 +269,7 @@ describe("Terra Integration Tests", () => {
       await getIsTransferCompletedTerra(
         CONTRACTS.DEVNET.terra.token_bridge,
         transferSignedVaa,
-        lcdClassic,
-        TERRA_GAS_PRICES_URL
+        lcdClassic
       )
     ).toBe(true);
   });

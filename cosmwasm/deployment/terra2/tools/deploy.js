@@ -9,20 +9,23 @@ import { readFileSync, readdirSync } from "fs";
 import { Bech32, toHex } from "@cosmjs/encoding";
 import { zeroPad } from "ethers/lib/utils.js";
 
+// Generated using
+// `guardiand template ibc-receiver-update-channel-chain --channel-id channel-0 --chain-id 3104 --target-chain-id 32 > terra2.prototxt`
+// `guardiand admin governance-vaa-verify terra2.prototxt`
+const WORMHOLE_IBC_WHITELIST_VAA =
+  "0100000000010025e55ab23c8d0a7fddd4686f41801792cdce1ff7335a2b9436192bd552fa0f9b5c18016057b0d4b3f24c759eafe3e5fedd7fce76fe6f21cec815ffbaf4ec3ad801000000009b9a6b2d0001000000000000000000000000000000000000000000000000000000000000000460efd4405060ac0c200000000000000000000000000000000000000000004962635265636569766572010020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006368616e6e656c2d300c20";
+
 /*
   NOTE: Only append to this array: keeping the ordering is crucial, as the
   contracts must be imported in a deterministic order so their addresses remain
   deterministic.
 */
 const artifacts = [
-  "wormhole.wasm",
-  "token_bridge_terra_2.wasm",
+  "cw_wormhole.wasm",
+  "cw_token_bridge.wasm",
   "cw20_wrapped_2.wasm",
   "cw20_base.wasm",
-  "mock_bridge_integration_2.wasm",
-  "shutdown_core_bridge_cosmwasm.wasm",
-  "shutdown_token_bridge_cosmwasm.wasm",
-  "wormchain_accounting.wasm",
+  "wormhole_ibc.wasm",
 ];
 
 /* Check that the artifact folder contains all the wasm files we expect and nothing else */
@@ -45,18 +48,6 @@ if (missing_artifacts.length) {
   console.log(
     "External binary blobs need to be manually added in tools/Dockerfile."
   );
-  process.exit(1);
-}
-
-const unexpected_artifacts = actual_artifacts.filter(
-  (a) => !artifacts.includes(a)
-);
-if (unexpected_artifacts.length) {
-  console.log(
-    "Error during terra deployment. The following files are not expected to be in the artifacts folder:"
-  );
-  unexpected_artifacts.forEach((file) => console.log(`  - ${file}`));
-  console.log("Hint: you might need to modify tools/deploy.js");
   process.exit(1);
 }
 
@@ -154,8 +145,8 @@ if (!init_guardians || init_guardians.length === 0) {
   throw "failed to get initial guardians from .env file.";
 }
 
-addresses["wormhole.wasm"] = await instantiate(
-  "wormhole.wasm",
+addresses["cw_wormhole.wasm"] = await instantiate(
+  "cw_wormhole.wasm",
   {
     gov_chain: govChain,
     gov_address: Buffer.from(govAddress, "hex").toString("base64"),
@@ -174,12 +165,12 @@ addresses["wormhole.wasm"] = await instantiate(
   "wormhole"
 );
 
-addresses["token_bridge_terra_2.wasm"] = await instantiate(
-  "token_bridge_terra_2.wasm",
+addresses["cw_token_bridge.wasm"] = await instantiate(
+  "cw_token_bridge.wasm",
   {
     gov_chain: govChain,
     gov_address: Buffer.from(govAddress, "hex").toString("base64"),
-    wormhole_contract: addresses["wormhole.wasm"],
+    wormhole_contract: addresses["cw_wormhole.wasm"],
     wrapped_asset_code_id: codeIds["cw20_wrapped_2.wasm"],
     chain_id: 18,
     native_denom: "uluna",
@@ -206,10 +197,32 @@ addresses["mock.wasm"] = await instantiate(
   "mock"
 );
 
+addresses["wormhole_ibc.wasm"] = await instantiate(
+  "wormhole_ibc.wasm",
+  {
+    gov_chain: govChain,
+    gov_address: Buffer.from(govAddress, "hex").toString("base64"),
+    guardian_set_expirity: 86400,
+    initial_guardian_set: {
+      // This is using one guardian so the above registration can be hard-coded
+      // TODO: instantiate with the correct guardian set and dynamically generate the registration
+      addresses: [
+        {
+          bytes: Buffer.from(init_guardians[0], "hex").toString("base64"),
+        },
+      ],
+      expiration_time: 0,
+    },
+    chain_id: 32,
+    fee_denom: "uluna",
+  },
+  "wormholeIbc"
+);
+
 /* Registrations: tell the bridge contracts to know about each other */
 
 const contract_registrations = {
-  "token_bridge_terra_2.wasm": [
+  "cw_token_bridge.wasm": [
     // Solana
     process.env.REGISTER_SOL_TOKEN_BRIDGE_VAA,
     // Ethereum
@@ -249,9 +262,48 @@ for (const [contract, registrations] of Object.entries(
         memo: "",
       })
       .then((tx) => terra.tx.broadcast(tx))
-      .then((rs) => console.log(rs));
+      .then((rs) => console.log(rs))
+      .catch((error) => {
+        if (error.response) {
+          // Request made and server responded
+          console.error(
+            error.response.data,
+            error.response.status,
+            error.response.headers
+          );
+        } else if (error.request) {
+          // The request was made but no response was received
+          console.error(error.request);
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          console.error("Error", error.message);
+        }
+
+        throw new Error(`Registering chain failed: ${registration}`);
+      });
   }
 }
+
+// submit wormchain channel ID whitelist to the wormhole_ibc contract
+const ibc_whitelist_tx = await wallet.createAndSignTx({
+  msgs: [
+    new MsgExecuteContract(
+      wallet.key.accAddress,
+      addresses["wormhole_ibc.wasm"],
+      {
+        submit_update_channel_chain: {
+          vaa: Buffer.from(WORMHOLE_IBC_WHITELIST_VAA, "hex").toString(
+            "base64"
+          ),
+        },
+      },
+      { uluna: 1000 }
+    ),
+  ],
+  memo: "",
+});
+const ibc_whitelist_res = await terra.tx.broadcast(ibc_whitelist_tx);
+console.log("updated wormhole_ibc channel whitelist", ibc_whitelist_res.txhash);
 
 // Terra addresses are "human-readable", but for cross-chain registrations, we
 // want the "canonical" version

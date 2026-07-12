@@ -33,3 +33,9 @@ const (
 const (
 	ConsensusGuardianSetIndexKey = "ConsensusGuardianSetIndex-value-"
 )
+
+const (
+	ValidatorAllowlistKey         = "VAK"
+	WasmInstantiateAllowlistKey   = "WasmInstiantiateAllowlist"
+	IbcComposabilityMwContractKey = "IbcComposabilityMwContract"
+)

@@ -36,7 +36,7 @@ Usage:
 
   where:
     -h  show this help text
-    -m  module (TokenBridge, NFTBridge)
+    -m  module (TokenBridge, NFTBridge, WormholeRelayer)
     -c  chain name
     -a  emitter address (optional, derived by worm CLI by default)
     -o  multi-mode output directory
@@ -90,10 +90,10 @@ shift $((OPTIND - 1))
 [ -z "$module" ] && usage
 
 # Use the worm client to get the emitter address and wormhole chain ID.
-[ -z "$address" ] && address=`worm contract --emitter mainnet $chain_name $module`
+[ -z "$address" ] && address=`worm info contract mainnet $chain_name $module`
 [ -z "$address" ] && usage
 
-chain=`worm chain-id $chain_name`
+chain=`worm info chain-id $chain_name`
 [ -z "$chain" ] && usage
 
 ### The script constructs the governance proposal in two different steps. First,
@@ -122,6 +122,12 @@ guardiand template token-bridge-register-chain \\
     echo "\
 guardiand template token-bridge-register-chain \\
   --chain-id $chain --module \"NFTBridge\" \\
+  --new-address $address"
+    ;;
+  WormholeRelayer)
+    echo "\
+guardiand template token-bridge-register-chain \\
+  --chain-id $chain --module \"WormholeRelayer\" \\
   --new-address $address"
     ;;
   *) echo "unknown module $module" >&2
@@ -159,8 +165,8 @@ digest=$(echo "$verify" | grep "VAA with digest" | cut -d' ' -f6 | sed 's/://g')
 
 # massage the digest into the same format that the inject command prints it
 digest=$(echo "$digest" | awk '{print toupper($0)}' | sed 's/^0X//')
-# we use the first 7 characters of the digest as an identifier for the prototxt file
-gov_id=$(echo "$digest" | cut -c1-7)
+# we use the first 7 characters of the first digest as an identifier for the prototxt file
+gov_id=$(echo "$digest" | head -n 1 | cut -c1-7)
 
 ################################################################################
 # Print vote command and expected digests

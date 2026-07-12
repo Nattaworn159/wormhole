@@ -12,7 +12,10 @@ import (
 	wormholesdk "github.com/wormhole-foundation/wormhole/sdk"
 )
 
-// TODO(csongor): high-level overview of what this does
+// This function is used to onboard Wormhole Guardians as Validators on Wormchain.
+// It creates a 1:1 association between a Guardian addresss and a Wormchain validator address.
+// 1. Guardian signs their validator address -- SIGNATURE=$(guardiand admin sign-wormchain-address <wormhole...>)
+// 2. Guardian submits $SIGNATURE to Wormchain via this handler, using their new validator address as the signer of the Wormchain tx.
 func (k msgServer) RegisterAccountAsGuardian(goCtx context.Context, msg *types.MsgRegisterAccountAsGuardian) (*types.MsgRegisterAccountAsGuardianResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -20,6 +23,7 @@ func (k msgServer) RegisterAccountAsGuardian(goCtx context.Context, msg *types.M
 	if err != nil {
 		return nil, err
 	}
+
 	// recover guardian key from signature
 	signerHash := crypto.Keccak256Hash(wormholesdk.SignedWormchainAddressPrefix, signer)
 	guardianKey, err := crypto.Ecrecover(signerHash.Bytes(), msg.Signature)
@@ -40,16 +44,17 @@ func (k msgServer) RegisterAccountAsGuardian(goCtx context.Context, msg *types.M
 	// we don't allow registration of arbitrary public keys, since that would
 	// enable a DoS vector
 	latestGuardianSetIndex := k.Keeper.GetLatestGuardianSetIndex(ctx)
-	consensusGuardianSetIndex, found := k.GetConsensusGuardianSetIndex(ctx)
-
-	if found && latestGuardianSetIndex == consensusGuardianSetIndex.Index {
-		return nil, types.ErrConsensusSetNotUpdatable
+	latestGuardianSet, guardianSetFound := k.Keeper.GetGuardianSet(ctx, latestGuardianSetIndex)
+	if !guardianSetFound {
+		return nil, types.ErrGuardianSetNotFound
 	}
 
-	latestGuardianSet, found := k.Keeper.GetGuardianSet(ctx, latestGuardianSetIndex)
-
-	if !found {
-		return nil, types.ErrGuardianSetNotFound
+	// With the change to allow hot swapping on validator sets > 1 validator, this check is no
+	// longer useful. However, it is necessary. This check ensures the gas usage of the transaction
+	// matches the previous implementation as this is included in a non-consensus breaking change.
+	_, consensusIndexFound := k.GetConsensusGuardianSetIndex(ctx)
+	if !consensusIndexFound {
+		return nil, types.ErrConsensusSetUndefined
 	}
 
 	if !latestGuardianSet.ContainsKey(guardianKeyAddr) {

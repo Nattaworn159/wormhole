@@ -5,16 +5,61 @@ use cosmwasm_std::{to_binary, Addr, Api, Binary, BlockInfo, CustomQuery, Empty, 
 use cw_multi_test::{AppResponse, CosmosRouter, Module};
 use k256::ecdsa::{recoverable, signature::Signer, SigningKey};
 use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
-use wormhole::vaa::{digest, Signature};
+use serde::{de::DeserializeOwned, Serialize};
+use serde_wormhole::RawMessage;
+use wormhole_sdk::{
+    token::Message,
+    vaa::{digest, Body, Header, Signature},
+    Address, Chain, Vaa, GOVERNANCE_EMITTER,
+};
 
 use crate::WormholeQuery;
+
+pub fn default_guardian_keys() -> [SigningKey; 7] {
+    [
+        SigningKey::from_bytes(&[
+            93, 217, 189, 224, 168, 81, 157, 93, 238, 38, 143, 8, 182, 94, 69, 77, 232, 199, 238,
+            206, 15, 135, 221, 58, 43, 74, 0, 129, 54, 198, 62, 226,
+        ])
+        .unwrap(),
+        SigningKey::from_bytes(&[
+            150, 48, 135, 223, 194, 186, 243, 139, 177, 8, 126, 32, 210, 57, 42, 28, 29, 102, 196,
+            201, 106, 136, 40, 149, 218, 150, 240, 213, 192, 128, 161, 245,
+        ])
+        .unwrap(),
+        SigningKey::from_bytes(&[
+            121, 51, 199, 93, 237, 227, 62, 220, 128, 129, 195, 4, 190, 163, 254, 12, 212, 224,
+            188, 76, 141, 242, 229, 121, 192, 5, 161, 176, 136, 99, 83, 53,
+        ])
+        .unwrap(),
+        SigningKey::from_bytes(&[
+            224, 180, 4, 114, 215, 161, 184, 12, 218, 96, 20, 141, 154, 242, 46, 230, 167, 165, 54,
+            141, 108, 64, 146, 27, 193, 89, 251, 139, 234, 132, 124, 30,
+        ])
+        .unwrap(),
+        SigningKey::from_bytes(&[
+            69, 1, 17, 179, 19, 47, 56, 47, 255, 219, 143, 89, 115, 54, 242, 209, 163, 131, 225,
+            30, 59, 195, 217, 141, 167, 253, 6, 95, 252, 52, 7, 223,
+        ])
+        .unwrap(),
+        SigningKey::from_bytes(&[
+            181, 3, 165, 125, 15, 200, 155, 56, 157, 204, 105, 221, 203, 149, 215, 175, 220, 228,
+            200, 37, 169, 39, 68, 127, 132, 196, 203, 232, 155, 55, 67, 253,
+        ])
+        .unwrap(),
+        SigningKey::from_bytes(&[
+            72, 81, 175, 107, 23, 108, 178, 66, 32, 53, 14, 117, 233, 33, 114, 102, 68, 89, 83,
+            201, 129, 57, 56, 130, 214, 212, 172, 16, 23, 22, 234, 160,
+        ])
+        .unwrap(),
+    ]
+}
 
 #[derive(Debug)]
 struct Inner {
     index: u32,
     expiration: u64,
-    guardians: [SigningKey; 7],
+    guardians: Vec<SigningKey>,
 }
 
 #[derive(Clone, Debug)]
@@ -22,47 +67,10 @@ pub struct WormholeKeeper(Rc<RefCell<Inner>>);
 
 impl WormholeKeeper {
     pub fn new() -> WormholeKeeper {
-        let guardians = [
-            SigningKey::from_bytes(&[
-                93, 217, 189, 224, 168, 81, 157, 93, 238, 38, 143, 8, 182, 94, 69, 77, 232, 199,
-                238, 206, 15, 135, 221, 58, 43, 74, 0, 129, 54, 198, 62, 226,
-            ])
-            .unwrap(),
-            SigningKey::from_bytes(&[
-                150, 48, 135, 223, 194, 186, 243, 139, 177, 8, 126, 32, 210, 57, 42, 28, 29, 102,
-                196, 201, 106, 136, 40, 149, 218, 150, 240, 213, 192, 128, 161, 245,
-            ])
-            .unwrap(),
-            SigningKey::from_bytes(&[
-                121, 51, 199, 93, 237, 227, 62, 220, 128, 129, 195, 4, 190, 163, 254, 12, 212, 224,
-                188, 76, 141, 242, 229, 121, 192, 5, 161, 176, 136, 99, 83, 53,
-            ])
-            .unwrap(),
-            SigningKey::from_bytes(&[
-                224, 180, 4, 114, 215, 161, 184, 12, 218, 96, 20, 141, 154, 242, 46, 230, 167, 165,
-                54, 141, 108, 64, 146, 27, 193, 89, 251, 139, 234, 132, 124, 30,
-            ])
-            .unwrap(),
-            SigningKey::from_bytes(&[
-                69, 1, 17, 179, 19, 47, 56, 47, 255, 219, 143, 89, 115, 54, 242, 209, 163, 131,
-                225, 30, 59, 195, 217, 141, 167, 253, 6, 95, 252, 52, 7, 223,
-            ])
-            .unwrap(),
-            SigningKey::from_bytes(&[
-                181, 3, 165, 125, 15, 200, 155, 56, 157, 204, 105, 221, 203, 149, 215, 175, 220,
-                228, 200, 37, 169, 39, 68, 127, 132, 196, 203, 232, 155, 55, 67, 253,
-            ])
-            .unwrap(),
-            SigningKey::from_bytes(&[
-                72, 81, 175, 107, 23, 108, 178, 66, 32, 53, 14, 117, 233, 33, 114, 102, 68, 89, 83,
-                201, 129, 57, 56, 130, 214, 212, 172, 16, 23, 22, 234, 160,
-            ])
-            .unwrap(),
-        ];
         WormholeKeeper(Rc::new(RefCell::new(Inner {
             index: 0,
             expiration: 0,
-            guardians,
+            guardians: default_guardian_keys().to_vec(),
         })))
     }
 
@@ -84,20 +92,36 @@ impl WormholeKeeper {
             .collect()
     }
 
-    pub fn verify_quorum(
-        &self,
-        data: &[u8],
-        index: u32,
-        signatures: &[Signature],
-        block_time: u64,
-    ) -> anyhow::Result<Empty> {
+    pub fn sign_message(&self, msg: &[u8]) -> Vec<Signature> {
+        self.0
+            .borrow()
+            .guardians
+            .iter()
+            .map(|g| {
+                let sig: recoverable::Signature = g.sign(msg);
+                sig.as_ref().try_into().unwrap()
+            })
+            .enumerate()
+            .map(|(idx, sig)| Signature {
+                index: idx as u8,
+                signature: sig,
+            })
+            .collect()
+    }
+
+    pub fn verify_vaa(&self, vaa: &[u8], block_time: u64) -> anyhow::Result<Empty> {
+        let (header, data) = serde_wormhole::from_slice::<(Header, &RawMessage)>(vaa)
+            .context("failed to parse VAA header")?;
+
         let mut signers = BTreeSet::new();
-        for s in signatures {
-            self.verify_signature(data, index, s, block_time)?;
+        for s in &header.signatures {
+            // Vaa's are double hashed
+            let digest = digest(data).context("unable to create digest of vaa body")?;
+            self.verify_signature(&[], &digest.hash, header.guardian_set_index, s, block_time)?;
             signers.insert(s.index);
         }
 
-        if signers.len() as u32 >= self.calculate_quorum(index, block_time)? {
+        if signers.len() as u32 >= self.calculate_quorum(header.guardian_set_index, block_time)? {
             Ok(Empty {})
         } else {
             Err(anyhow!("no quorum"))
@@ -106,6 +130,7 @@ impl WormholeKeeper {
 
     pub fn verify_signature(
         &self,
+        prefix: &[u8],
         data: &[u8],
         index: u32,
         sig: &Signature,
@@ -117,13 +142,16 @@ impl WormholeKeeper {
             this.expiration == 0 || block_time < this.expiration,
             "guardian set expired"
         );
+        let mut prepended = Vec::with_capacity(prefix.len() + data.len());
+        prepended.extend_from_slice(prefix);
+        prepended.extend_from_slice(data);
 
-        let d = digest(data).context("failed to calculate digest for data")?;
+        let d = digest(prepended.as_slice()).context("failed to calculate digest for data")?;
         if let Some(g) = this.guardians.get(sig.index as usize) {
             let s = recoverable::Signature::try_from(&sig.signature[..])
                 .context("failed to decode signature")?;
             let verifying_key = s
-                .recover_verify_key_from_digest_bytes(&d.secp256k_hash.into())
+                .recover_verifying_key_from_digest_bytes(&d.hash.into())
                 .context("failed to recover verifying key")?;
             ensure!(
                 g.verifying_key() == verifying_key,
@@ -148,19 +176,16 @@ impl WormholeKeeper {
 
     pub fn query(&self, request: WormholeQuery, block: &BlockInfo) -> anyhow::Result<Binary> {
         match request {
-            WormholeQuery::VerifyQuorum {
-                data,
-                guardian_set_index,
-                signatures,
-            } => self
-                .verify_quorum(&data, guardian_set_index, &signatures, block.height)
+            WormholeQuery::VerifyVaa { vaa } => self
+                .verify_vaa(&vaa, block.height)
                 .and_then(|e| to_binary(&e).map_err(From::from)),
-            WormholeQuery::VerifySignature {
+            WormholeQuery::VerifyMessageSignature {
+                prefix,
                 data,
                 guardian_set_index,
                 signature,
             } => self
-                .verify_signature(&data, guardian_set_index, &signature, block.height)
+                .verify_signature(&prefix, &data, guardian_set_index, &signature, block.height)
                 .and_then(|e| to_binary(&e).map_err(From::from)),
             WormholeQuery::CalculateQuorum { guardian_set_index } => self
                 .calculate_quorum(guardian_set_index, block.height)
@@ -192,6 +217,16 @@ impl WormholeKeeper {
 impl Default for WormholeKeeper {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Vec<SigningKey>> for WormholeKeeper {
+    fn from(guardians: Vec<SigningKey>) -> Self {
+        WormholeKeeper(Rc::new(RefCell::new(Inner {
+            index: 0,
+            expiration: 0,
+            guardians,
+        })))
     }
 }
 
@@ -236,5 +271,56 @@ impl Module for WormholeKeeper {
         request: Self::QueryT,
     ) -> anyhow::Result<Binary> {
         self.query(request, block)
+    }
+}
+
+pub fn create_gov_vaa_body<Payload>(i: usize, payload: Payload) -> Body<Payload> {
+    Body {
+        timestamp: i as u32,
+        nonce: i as u32,
+        emitter_chain: Chain::Solana,
+        emitter_address: GOVERNANCE_EMITTER,
+        sequence: i as u64,
+        consistency_level: 0,
+        payload,
+    }
+}
+
+pub fn create_vaa_body(
+    i: usize,
+    emitter_chain: impl Into<Chain>,
+    emitter_address: Address,
+    payload: Message,
+) -> Body<Message> {
+    Body {
+        timestamp: i as u32,
+        nonce: i as u32,
+        emitter_chain: emitter_chain.into(),
+        emitter_address,
+        sequence: i as u64,
+        consistency_level: 32,
+        payload,
+    }
+}
+
+pub trait SignVaa<M> {
+    fn sign_vaa(self, wh: &WormholeKeeper) -> (Vaa<M>, Binary);
+}
+
+impl<M: Serialize> SignVaa<M> for Body<M> {
+    fn sign_vaa(self, wh: &WormholeKeeper) -> (Vaa<M>, Binary) {
+        let data = serde_wormhole::to_vec(&self).unwrap();
+        let signatures = wh.sign(&data);
+
+        let header = Header {
+            version: 1,
+            guardian_set_index: wh.guardian_set_index(),
+            signatures,
+        };
+
+        let v: Vaa<M> = (header, self).into();
+        let data = serde_wormhole::to_vec(&v).map(From::from).unwrap();
+
+        (v, data)
     }
 }

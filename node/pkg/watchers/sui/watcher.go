@@ -2,21 +2,15 @@ package sui
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
-	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	"encoding/base64"
 	"encoding/json"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/p2p"
@@ -28,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	"github.com/mr-tron/base58"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"go.uber.org/zap"
 )
@@ -35,39 +30,62 @@ import (
 type (
 	// Watcher is responsible for looking over Sui blockchain and reporting new transactions to the wormhole contract
 	Watcher struct {
-		suiRPC     string
-		suiWS      string
-		suiAccount string
-		suiPackage string
+		suiRPC           string
+		suiMoveEventType string
 
 		unsafeDevMode bool
 
-		msgChan  chan *common.MessagePublication
-		obsvReqC chan *gossipv1.ObservationRequest
+		msgChan                   chan<- *common.MessagePublication
+		obsvReqC                  <-chan *gossipv1.ObservationRequest
+		readinessSync             readiness.Component
+		latestProcessedCheckpoint int64
+		maximumBatchSize          int
+		descendingOrder           bool
+		loopDelay                 time.Duration
+		queryEventsCmd            string
+		postTimeout               time.Duration
+	}
 
-		subId      int64
-		subscribed bool
+	SuiEventResponse struct {
+		Jsonrpc string               `json:"jsonrpc"`
+		Result  SuiEventResponseData `json:"result"`
+		ID      int                  `json:"id"`
+	}
+	SuiEventResponseData struct {
+		Data       []SuiResult `json:"data"`
+		NextCursor struct {
+			TxDigest string `json:"txDigest"`
+			EventSeq string `json:"eventSeq"`
+		} `json:"nextCursor"`
+		HasNextPage bool `json:"hasNextPage"`
+	}
+
+	SuiResultInfo struct {
+		result     SuiResult
+		checkpoint int64
+	}
+
+	FieldsData struct {
+		ConsistencyLevel *uint8  `json:"consistency_level"`
+		Nonce            *uint64 `json:"nonce"`
+		Payload          []byte  `json:"payload"`
+		Sender           *string `json:"sender"`
+		Sequence         *string `json:"sequence"`
+		Timestamp        *string `json:"timestamp"`
 	}
 
 	SuiResult struct {
-		Timestamp *int64  `json:"timestamp"`
-		TxDigest  *string `json:"txDigest"`
-		Event     struct {
-			MoveEvent *struct {
-				PackageID         *string `json:"packageId"`
-				TransactionModule *string `json:"transactionModule"`
-				Sender            *string `json:"sender"`
-				Type              *string `json:"type"`
-				Fields            *struct {
-					ConsistencyLevel *uint8  `json:"consistency_level"`
-					Nonce            *uint64 `json:"nonce"`
-					Payload          *string `json:"payload"`
-					Sender           *uint64 `json:"sender"`
-					Sequence         *uint64 `json:"sequence"`
-				} `json:"fields"`
-				Bcs string `json:"bcs"`
-			} `json:"moveEvent"`
-		} `json:"event"`
+		ID struct {
+			TxDigest *string `json:"txDigest"`
+			EventSeq *string `json:"eventSeq"`
+		} `json:"id"`
+		PackageID         *string          `json:"packageId"`
+		TransactionModule *string          `json:"transactionModule"`
+		Sender            *string          `json:"sender"`
+		Type              *string          `json:"type"`
+		Bcs               *string          `json:"bcs"`
+		Timestamp         *string          `json:"timestampMs"`
+		Fields            *json.RawMessage `json:"parsedJson"`
 	}
 
 	SuiEventError struct {
@@ -86,22 +104,53 @@ type (
 		} `json:"params"`
 	}
 
+	SuiTxnQueryError struct {
+		Jsonrpc string `json:"jsonrpc"`
+		Error   struct {
+			Code    int     `json:"code"`
+			Message *string `json:"message"`
+		} `json:"error"`
+		ID int `json:"id"`
+	}
+
 	SuiTxnQuery struct {
+		Jsonrpc string      `json:"jsonrpc"`
+		Result  []SuiResult `json:"result"`
+		ID      int         `json:"id"`
+	}
+
+	SuiCheckpointSN struct {
+		Jsonrpc string `json:"jsonrpc"`
+		Result  string `json:"result"`
+		ID      int    `json:"id"`
+	}
+
+	GetCheckpointResponse struct {
 		Jsonrpc string `json:"jsonrpc"`
 		Result  struct {
-			Data       []SuiResult `json:"data"`
-			NextCursor interface{} `json:"nextCursor"`
+			Digest      string `json:"digest"`
+			TimestampMs string `json:"timestampMs"`
+			Checkpoint  string `json:"checkpoint"`
 		} `json:"result"`
 		ID int `json:"id"`
 	}
 
-	SuiCommitteeInfo struct {
-		Jsonrpc string `json:"jsonrpc"`
-		Result  struct {
-			Epoch         int             `json:"epoch"`
-			CommitteeInfo [][]interface{} `json:"committee_info"`
-		} `json:"result"`
-		ID int `json:"id"`
+	RequestPayload struct {
+		JSONRPC string     `json:"jsonrpc"`
+		ID      int        `json:"id"`
+		Method  string     `json:"method"`
+		Params  [][]string `json:"params"`
+	}
+
+	TxBlockResult struct {
+		Digest      string `json:"digest"`
+		TimestampMs string `json:"timestampMs"`
+		Checkpoint  string `json:"checkpoint"`
+	}
+
+	MultipleBlockResult struct {
+		Jsonrpc string          `json:"jsonrpc"`
+		Result  []TxBlockResult `json:"result"`
 	}
 )
 
@@ -121,98 +170,113 @@ var (
 // NewWatcher creates a new Sui appid watcher
 func NewWatcher(
 	suiRPC string,
-	suiWS string,
-	suiAccount string,
-	suiPackage string,
+	suiMoveEventType string,
 	unsafeDevMode bool,
-	messageEvents chan *common.MessagePublication,
-	obsvReqC chan *gossipv1.ObservationRequest,
+	messageEvents chan<- *common.MessagePublication,
+	obsvReqC <-chan *gossipv1.ObservationRequest,
 ) *Watcher {
+	maxBatchSize := 10
+	descOrder := true
 	return &Watcher{
-		suiRPC:        suiRPC,
-		suiWS:         suiWS,
-		suiAccount:    suiAccount,
-		suiPackage:    suiPackage,
-		unsafeDevMode: unsafeDevMode,
-		msgChan:       messageEvents,
-		obsvReqC:      obsvReqC,
-		subId:         0,
-		subscribed:    false,
+		suiRPC:                    suiRPC,
+		suiMoveEventType:          suiMoveEventType,
+		unsafeDevMode:             unsafeDevMode,
+		msgChan:                   messageEvents,
+		obsvReqC:                  obsvReqC,
+		readinessSync:             common.MustConvertChainIdToReadinessSyncing(vaa.ChainIDSui),
+		latestProcessedCheckpoint: 0,
+		maximumBatchSize:          maxBatchSize,
+		descendingOrder:           descOrder,   // Retrieve newest events first
+		loopDelay:                 time.Second, // SUI produces a checkpoint every ~3 seconds
+		queryEventsCmd: fmt.Sprintf(`{"jsonrpc":"2.0", "id": 1, "method": "suix_queryEvents", "params": [{ "MoveEventType": "%s" }, null, %d, %t]}`,
+			suiMoveEventType, maxBatchSize, descOrder),
+		postTimeout: time.Second * 5,
 	}
 }
 
-func (e *Watcher) inspectBody(logger *zap.Logger, body SuiResult) error {
-	if (body.Timestamp == nil) || (body.TxDigest == nil) {
-		return errors.New("Missing event fields")
+func (e *Watcher) inspectBody(logger *zap.Logger, body SuiResult, isReobservation bool) error {
+	if body.ID.TxDigest == nil {
+		return errors.New("Missing TxDigest field")
 	}
-	if body.Event.MoveEvent == nil {
-		return nil
-	}
-	moveEvent := *body.Event.MoveEvent
-	if (moveEvent.PackageID == nil) || (moveEvent.Sender == nil) {
-		return errors.New("Missing event fields")
+	if body.Type == nil {
+		return errors.New("Missing Type field")
 	}
 
-	if moveEvent.Fields == nil {
+	// There may be moveEvents caught without these params.
+	// So, not necessarily an error.
+	if body.Fields == nil {
 		return nil
 	}
-	fields := *moveEvent.Fields
+
+	if e.suiMoveEventType != *body.Type {
+		logger.Info("type mismatch", zap.String("e.suiMoveEventType", e.suiMoveEventType), zap.String("type", *body.Type))
+		return nil
+	}
+
+	// Now that we know this is a wormhole event, we can unmarshal the specifics.
+	var fields FieldsData
+	err := json.Unmarshal(*body.Fields, &fields)
+	if err != nil {
+		logger.Error("failed to unmarshal FieldsData", zap.String("SuiResult.Fields", string(*body.Fields)), zap.Error(err))
+		p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+		return fmt.Errorf("inspectBody failed to unmarshal FieldsData: %w", err)
+	}
+
+	// Check if all required fields exist
 	if (fields.ConsistencyLevel == nil) || (fields.Nonce == nil) || (fields.Payload == nil) || (fields.Sender == nil) || (fields.Sequence == nil) {
+		logger.Info("Missing required fields in event.")
 		return nil
 	}
 
-	if e.suiAccount != *moveEvent.Sender {
-		logger.Info("account missmatch", zap.String("e.suiAccount", e.suiAccount), zap.String("account", *moveEvent.Sender))
-		return errors.New("account missmatch")
-	}
-
-	if !e.unsafeDevMode && e.suiPackage != *moveEvent.PackageID {
-		logger.Info("package missmatch", zap.String("e.suiPackage", e.suiPackage), zap.String("package", *moveEvent.PackageID))
-		return errors.New("package missmatch")
-	}
-
-	emitter := make([]byte, 8)
-	binary.BigEndian.PutUint64(emitter, *fields.Sender)
-
-	var a vaa.Address
-	copy(a[24:], emitter)
-
-	id, err := base64.StdEncoding.DecodeString(*body.TxDigest)
+	emitter, err := vaa.StringToAddress(*fields.Sender)
 	if err != nil {
 		return err
 	}
 
-	var txHash = eth_common.BytesToHash(id) // 32 bytes = d3b136a6a182a40554b2fafbc8d12a7a22737c10c81e33b33d1dcb74c532708b
-
-	pl, err := base64.StdEncoding.DecodeString(*fields.Payload)
+	txHashBytes, err := base58.Decode(*body.ID.TxDigest)
 	if err != nil {
 		return err
+	}
 
+	if len(txHashBytes) != 32 {
+		logger.Error(
+			"Transaction hash is not 32 bytes",
+			zap.String("error_type", "malformed_wormhole_event"),
+			zap.String("log_msg_type", "tx_processing_error"),
+			zap.String("txHash", *body.ID.TxDigest),
+		)
+		return errors.New("Transaction hash is not 32 bytes")
+	}
+
+	txHashEthFormat := eth_common.BytesToHash(txHashBytes)
+
+	seq, err := strconv.ParseUint(*fields.Sequence, 10, 64)
+	if err != nil {
+		logger.Info("Sequence decode error", zap.String("Sequence", *fields.Sequence))
+		return err
+	}
+	ts, err := strconv.ParseInt(*fields.Timestamp, 10, 64)
+	if err != nil {
+		logger.Info("Timestamp decode error", zap.String("Timestamp", *fields.Timestamp))
+		return err
 	}
 
 	observation := &common.MessagePublication{
-		TxHash: txHash,
-		// We do NOT have a useful source of timestamp
-		// information.  Every node has its own concept of a
-		// timestamp and nothing is persisted into the
-		// blockchain to make re-observation possible.  Later
-		// we could explore putting the epoch or block height
-		// here but even those are currently not available.
-		//
-		// Timestamp:        time.Unix(int64(timestamp.Uint()/1000), 0),
-		Timestamp:        time.Unix(0, 0),
-		Nonce:            uint32(*fields.Nonce), // uint32
-		Sequence:         *fields.Sequence,
+		TxID:             txHashEthFormat.Bytes(),
+		Timestamp:        time.Unix(ts, 0),
+		Nonce:            uint32(*fields.Nonce),
+		Sequence:         seq,
 		EmitterChain:     vaa.ChainIDSui,
-		EmitterAddress:   a,
-		Payload:          pl,
-		ConsistencyLevel: uint8(*fields.ConsistencyLevel),
+		EmitterAddress:   emitter,
+		Payload:          fields.Payload,
+		ConsistencyLevel: *fields.ConsistencyLevel,
+		IsReobservation:  isReobservation,
 	}
 
 	suiMessagesConfirmed.Inc()
 
 	logger.Info("message observed",
-		zap.Stringer("txHash", observation.TxHash),
+		zap.String("txHash", observation.TxIDString()),
 		zap.Time("timestamp", observation.Timestamp),
 		zap.Uint32("nonce", observation.Nonce),
 		zap.Uint64("sequence", observation.Sequence),
@@ -229,189 +293,350 @@ func (e *Watcher) inspectBody(logger *zap.Logger, body SuiResult) error {
 
 func (e *Watcher) Run(ctx context.Context) error {
 	p2p.DefaultRegistry.SetNetworkStats(vaa.ChainIDSui, &gossipv1.Heartbeat_Network{
-		ContractAddress: e.suiAccount,
+		ContractAddress: e.suiMoveEventType,
 	})
 
 	logger := supervisor.Logger(ctx)
 
-	u := url.URL{Scheme: "ws", Host: e.suiWS}
+	logger.Info("Starting watcher",
+		zap.String("watcher_name", "sui"),
+		zap.String("suiRPC", e.suiRPC),
+		zap.String("suiMoveEventType", e.suiMoveEventType),
+		zap.Bool("unsafeDevMode", e.unsafeDevMode),
+	)
 
-	logger.Info("Sui watcher connecting to WS node ", zap.String("url", u.String()))
-
-	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	// Get the latest checkpoint sequence number.  This will be the starting point for the watcher.
+	latest, err := e.getLatestCheckpointSN(logger)
 	if err != nil {
-		logger.Error(fmt.Sprintf("e.suiWS: %s", err.Error()))
-		return err
+		return fmt.Errorf("failed to get latest checkpoint sequence number: %w", err)
 	}
+	e.latestProcessedCheckpoint = latest
 
-	var s string
-
-	nBig, _ := rand.Int(rand.Reader, big.NewInt(27))
-	e.subId = nBig.Int64()
-
-	if e.unsafeDevMode {
-		// There is no way to have a fixed package id on
-		// deployment.  This means that in devnet, everytime
-		// we publish the contracts we will get a new package
-		// id.  The solution is to just subscribe to the whole
-		// deployer account instead of to a specific package
-		// in that account...
-		s = fmt.Sprintf(`{"jsonrpc":"2.0", "id": %d, "method": "sui_subscribeEvent", "params": [{"SenderAddress": "%s"}]}`, e.subId, e.suiAccount)
-	} else {
-		s = fmt.Sprintf(`{"jsonrpc":"2.0", "id": %d, "method": "sui_subscribeEvent", "params": [{"SenderAddress": "%s", "Package": "%s"}]}`, e.subId, e.suiAccount, e.suiPackage)
-	}
-
-	logger.Info("Subscribing using", zap.String("filter", s))
-
-	if err := ws.WriteMessage(websocket.TextMessage, []byte(s)); err != nil {
-		logger.Error(fmt.Sprintf("write: %s", err.Error()))
-		return err
-	}
-
-	timer := time.NewTicker(time.Second * 1)
+	timer := time.NewTicker(time.Second * 5)
 	defer timer.Stop()
 
-	supervisor.Signal(ctx, supervisor.SignalHealthy)
-
 	errC := make(chan error)
-	defer close(errC)
 	pumpData := make(chan []byte)
 	defer close(pumpData)
 
-	go func() {
+	supervisor.Signal(ctx, supervisor.SignalHealthy)
+	readiness.SetReady(e.readinessSync)
+
+	common.RunWithScissors(ctx, errC, "sui_data_pump", func(ctx context.Context) error {
 		for {
-			if _, msg, err := ws.ReadMessage(); err != nil {
-				logger.Error(fmt.Sprintf("ReadMessage: '%s'", err.Error()))
-				if strings.HasSuffix(err.Error(), "EOF") {
-					errC <- err
-					return
+			select {
+			case <-ctx.Done():
+				logger.Error("sui_data_pump context done")
+				return ctx.Err()
+
+			default:
+				dataWithEvents, err := e.getEvents()
+				if err != nil {
+					logger.Error("sui_data_pump Error", zap.Error(err))
+					continue
 				}
-			} else {
-				pumpData <- msg
+				// dataWithEvents is in descending order, so we need to process it in reverse order.
+				if len(dataWithEvents) > 0 {
+					for idx := len(dataWithEvents) - 1; idx >= 0; idx-- {
+						event := dataWithEvents[idx]
+						err = e.inspectBody(logger, event.result, false)
+						if err != nil {
+							logger.Error("inspectBody Error", zap.Error(err))
+							continue
+						}
+						if event.checkpoint > e.latestProcessedCheckpoint {
+							e.latestProcessedCheckpoint = event.checkpoint
+						}
+					}
+				}
+				time.Sleep(e.loopDelay)
 			}
 		}
-	}()
+	})
 
+	common.RunWithScissors(ctx, errC, "sui_block_height", func(ctx context.Context) error {
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Error("sui_block_height context done")
+				return ctx.Err()
+
+			case <-timer.C:
+				height, err := e.getLatestCheckpointSN(logger)
+				if err != nil {
+					logger.Error("Failed to get latest checkpoint sequence number", zap.Error(err))
+				} else {
+					currentSuiHeight.Set(float64(height))
+					logger.Debug("sui_getLatestCheckpointSequenceNumber", zap.Int64("result", height))
+
+					p2p.DefaultRegistry.SetNetworkStats(vaa.ChainIDSui, &gossipv1.Heartbeat_Network{
+						Height:          height,
+						ContractAddress: e.suiMoveEventType,
+					})
+				}
+
+				readiness.SetReady(e.readinessSync)
+			}
+		}
+	})
+
+	common.RunWithScissors(ctx, errC, "sui_fetch_obvs_req", func(ctx context.Context) error {
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Error("sui_fetch_obvs_req context done")
+				return ctx.Err()
+			case r := <-e.obsvReqC:
+				if vaa.ChainID(r.ChainId) != vaa.ChainIDSui {
+					panic("invalid chain ID")
+				}
+
+				tx58 := base58.Encode(r.TxHash)
+
+				payload := fmt.Sprintf(`{"jsonrpc":"2.0", "id": 1, "method": "sui_getEvents", "params": ["%s"]}`, tx58)
+
+				body, err := e.createAndExecReq(payload)
+				if err != nil {
+					logger.Error("sui_fetch_obvs_req failed", zap.Error(err))
+					p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+					return fmt.Errorf("sui_fetch_obvs_req failed to create and execute request: %w", err)
+				}
+
+				logger.Debug("receive", zap.String("body", string(body)))
+
+				// Do we have an error?
+				var err_res SuiTxnQueryError
+				err = json.Unmarshal(body, &err_res)
+				if err != nil {
+					logger.Error("sui_fetch_obvs_req failed to unmarshal event error message", zap.String("Result", string(body)))
+					p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+					return err
+				}
+
+				if err_res.Error.Message != nil {
+					logger.Error("sui_fetch_obvs_req failed to get events for re-observation request, detected error", zap.String("Result", string(body)))
+					p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+					// Don't need to kill the watcher on this error. So, just continue.
+					continue
+				}
+				var res SuiTxnQuery
+				err = json.Unmarshal(body, &res)
+				if err != nil {
+					logger.Error("failed to unmarshal event message", zap.String("body", string(body)), zap.Error(err))
+					p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+					return fmt.Errorf("sui_fetch_obvs_req failed to unmarshal: %w", err)
+
+				}
+
+				for i, chunk := range res.Result {
+					err := e.inspectBody(logger, chunk, true)
+					if err != nil {
+						logger.Info("sui_fetch_obvs_req skipping event data in result", zap.String("txhash", tx58), zap.Int("index", i), zap.Error(err))
+					}
+				}
+			}
+		}
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errC:
+		return err
+	}
+}
+
+func (w *Watcher) getEvents() ([]SuiResultInfo, error) {
+	// Only get events newer than the last processed height
+	var retVal []SuiResultInfo
+	var results []SuiResult
+	var txs []string
+	var nextCursor struct {
+		TxDigest string
+		EventSeq string
+	}
+	firstTime := true
 	for {
-		select {
-		case err := <-errC:
-			_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			logger.Error("Pump died")
-			return err
-		case <-ctx.Done():
-			_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			return ctx.Err()
-		case r := <-e.obsvReqC:
-			if vaa.ChainID(r.ChainId) != vaa.ChainIDSui {
-				panic("invalid chain ID")
+		var payload string
+		if firstTime {
+			payload = w.queryEventsCmd
+			firstTime = false
+		} else {
+			payload = fmt.Sprintf(`{"jsonrpc":"2.0", "id": 1, "method": "suix_queryEvents", "params": [{ "MoveEventType": "%s" }, { "txDigest": "%s", "eventSeq": "%s" }, %d, %t]}`,
+				w.suiMoveEventType, nextCursor.TxDigest, nextCursor.EventSeq, w.maximumBatchSize, w.descendingOrder)
+		}
+		res, err := w.suiQueryEvents(payload)
+		if err != nil {
+			return retVal, err
+		}
+		for _, datum := range res.Result.Data {
+			txs = append(txs, *datum.ID.TxDigest)
+			results = append(results, datum)
+		}
+		if (len(res.Result.Data) == 0) || (len(txs) == 0) {
+			// In devnet (tilt) the core contract may not have any events and we don't want to flood the logs.
+			if w.unsafeDevMode {
+				return retVal, nil
 			}
-
-			id := base64.StdEncoding.EncodeToString(r.TxHash)
-
-			logger.Info("obsv request", zap.String("TxHash", string(id)))
-
-			buf := fmt.Sprintf(`{"jsonrpc":"2.0", "id": 1, "method": "sui_getEvents", "params": [{"Transaction": "%s"}, null, 10, true]}`, id)
-
-			resp, err := http.Post(e.suiRPC, "application/json", strings.NewReader(buf))
-			if err != nil {
-				logger.Error("getEvents API failed", zap.String("suiRPC", e.suiRPC), zap.Error(err))
-				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
-				continue
+			return retVal, errors.New("getEvents was unable to get any events")
+		}
+		// Get and check the checkpoint for the last event against the lastProcessedHeight to see if we are done.
+		height, hErr := w.getCheckpointForDigest(txs[len(txs)-1])
+		if hErr != nil {
+			return retVal, hErr
+		}
+		if height <= w.latestProcessedCheckpoint || !res.Result.HasNextPage {
+			break
+		}
+		nextCursor.TxDigest = res.Result.NextCursor.TxDigest
+		nextCursor.EventSeq = res.Result.NextCursor.EventSeq
+	}
+	// At this point we have events but no checkpoints.
+	// Also, we probably have more events than we need.
+	// Need to do a bulk query to get all the checkpoints and then filter out the ones we don't need.
+	mbRes, err := w.getMultipleBlocks(txs)
+	if err != nil {
+		return retVal, err
+	}
+	if (len(mbRes) == 0) || (len(mbRes) != len(txs)) {
+		return retVal, errors.New("getEvents error getting multiple blocks")
+	}
+	for idx, block := range mbRes {
+		cp, err := strconv.ParseInt(block.Checkpoint, 10, 64)
+		if err != nil {
+			return retVal, fmt.Errorf("getEvents failed to ParseInt: %w", err)
+		}
+		if cp > w.latestProcessedCheckpoint {
+			// Double check the digest here
+			if txs[idx] != block.Digest {
+				return retVal, fmt.Errorf("getEvents digest mismatch: [%s] [%s]", txs[idx], block.Digest)
 			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				logger.Error("unexpected truncated body when calling getEvents", zap.Error(err))
-				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
-				continue
-
-			}
-			resp.Body.Close()
-
-			logger.Info("receive", zap.String("body", string(body)))
-
-			var res SuiTxnQuery
-			err = json.Unmarshal(body, &res)
-			if err != nil {
-				logger.Error("failed to unmarshal event message", zap.Error(err))
-				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
-				continue
-
-			}
-
-			for _, chunk := range res.Result.Data {
-				err := e.inspectBody(logger, chunk)
-				if err != nil {
-					logger.Error("unspected error while parsing chunk data in event", zap.Error(err))
-				}
-			}
-		case msg := <-pumpData:
-			logger.Info("receive", zap.String("body", string(msg)))
-
-			var res SuiEventMsg
-			err = json.Unmarshal(msg, &res)
-			if err != nil {
-				logger.Error("Failed to unmarshal SuiEventMsg", zap.String("body", string(msg)), zap.Error(err))
-				continue
-			}
-			if res.Error != nil {
-				_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				return errors.New((*res.Error).Message)
-			}
-			if res.ID != nil {
-				if *res.ID == e.subId {
-					logger.Info("Subscribed set to true")
-					e.subscribed = true
-				}
-				continue
-			}
-
-			if res.Params != nil && (*res.Params).Result != nil {
-				err := e.inspectBody(logger, *(*res.Params).Result)
-				if err != nil {
-					logger.Error(fmt.Sprintf("inspectBody: %s", err.Error()))
-				}
-				continue
-			}
-
-		case <-timer.C:
-			resp, err := http.Post(e.suiRPC, "application/json", strings.NewReader(`{"jsonrpc":"2.0", "id": 1, "method": "sui_getCommitteeInfo", "params": []}`))
-			if err != nil {
-				logger.Error("sui_getCommitteeInfo failed", zap.Error(err))
-				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
-				break
-
-			}
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				logger.Error("sui_getCommitteeInfo failed", zap.Error(err))
-				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
-				break
-			}
-			resp.Body.Close()
-
-			var res SuiCommitteeInfo
-			err = json.Unmarshal(body, &res)
-			if err != nil {
-				logger.Error("unmarshal failed into SuiCommitteeInfo", zap.String("body", string(body)), zap.Error(err))
-				p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
-				continue
-
-			}
-
-			// Epoch is currently not ticking in 0.16.0.  They also
-			// might release another API that gives a
-			// proper block height as we traditionally
-			// understand it...
-			currentSuiHeight.Set(float64(res.Result.Epoch))
-			p2p.DefaultRegistry.SetNetworkStats(vaa.ChainIDSui, &gossipv1.Heartbeat_Network{
-				Height:          int64(res.Result.Epoch),
-				ContractAddress: e.suiAccount,
-			})
-
-			if e.subscribed {
-				readiness.SetReady(common.ReadinessSuiSyncing)
-			}
+			sri := SuiResultInfo{result: results[idx], checkpoint: cp}
+			retVal = append(retVal, sri)
+		} else {
+			// We can break here because the blocks are in order.
+			break
 		}
 	}
+
+	return retVal, nil
+}
+
+func (w *Watcher) getMultipleBlocks(txs []string) ([]TxBlockResult, error) {
+	retVal := []TxBlockResult{}
+	payload := RequestPayload{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "sui_multiGetTransactionBlocks",
+		Params:  [][]string{txs},
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return retVal, fmt.Errorf("getMultipleBlocks failed to marshal payload: %w", err)
+	}
+
+	body, err := w.createAndExecReq(string(payloadBytes))
+	if err != nil {
+		return retVal, fmt.Errorf("getMultipleBlocks failed to create and execute request: %w", err)
+	}
+
+	var res MultipleBlockResult
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		return retVal, fmt.Errorf("getMultipleBlocks failed to unmarshal body: %s, error: %w", string(body), err)
+	}
+	retVal = res.Result
+
+	return retVal, nil
+}
+
+func (e *Watcher) getLatestCheckpointSN(logger *zap.Logger) (int64, error) {
+	payload := `{"jsonrpc":"2.0", "id": 1, "method": "sui_getLatestCheckpointSequenceNumber", "params": []}`
+
+	body, err := e.createAndExecReq(payload)
+	if err != nil {
+		logger.Error("sui_getLatestCheckpointSequenceNumber failed", zap.Error(err))
+		p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+		return 0, fmt.Errorf("sui_getLatestCheckpointSequenceNumber failed to create and execute request: %w", err)
+	}
+
+	var res SuiCheckpointSN
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		logger.Error("unmarshal failed into uint64", zap.String("body", string(body)), zap.Error(err))
+		p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+		return 0, fmt.Errorf("sui_getLatestCheckpointSequenceNumber failed to unmarshal body: %s, error: %w", string(body), err)
+	}
+
+	height, pErr := strconv.ParseInt(res.Result, 0, 64)
+	if pErr != nil {
+		logger.Error("Failed to ParseInt")
+		p2p.DefaultRegistry.AddErrorCount(vaa.ChainIDSui, 1)
+		return 0, fmt.Errorf("sui_getLatestCheckpointSequenceNumber failed to ParseInt, error: %w", err)
+	}
+	return height, nil
+}
+
+func (e *Watcher) getCheckpointForDigest(tx string) (int64, error) {
+	retVal := int64(0)
+	payload := fmt.Sprintf(`{"jsonrpc":"2.0", "id": 1, "method": "sui_getTransactionBlock", "params": [ "%s" ]}`, tx)
+
+	body, err := e.createAndExecReq(payload)
+	if err != nil {
+		return retVal, fmt.Errorf("getCheckpointForDigest failed to create and execute request: %w", err)
+	}
+
+	var res GetCheckpointResponse
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		return retVal, fmt.Errorf("getCheckpointForDigest failed to unmarshal body: %s, error: %w", string(body), err)
+	}
+	retVal, err = strconv.ParseInt(res.Result.Checkpoint, 10, 64)
+	if err != nil {
+		return retVal, fmt.Errorf("getCheckpointForDigest failed to ParseInt: %w", err)
+	}
+
+	return retVal, nil
+}
+
+func (w *Watcher) suiQueryEvents(payload string) (SuiEventResponse, error) {
+	retVal := SuiEventResponse{}
+
+	body, err := w.createAndExecReq(payload)
+	if err != nil {
+		return retVal, fmt.Errorf("suix_queryEvents failed to create and execute request: %w", err)
+	}
+
+	err = json.Unmarshal(body, &retVal)
+	if err != nil {
+		return retVal, fmt.Errorf("suix_queryEvents failed to unmarshal body: %s, error: %w", string(body), err)
+	}
+	return retVal, nil
+}
+
+func (w *Watcher) createAndExecReq(payload string) ([]byte, error) {
+	var retVal []byte
+	ctx, cancel := context.WithTimeout(context.Background(), w.postTimeout)
+	defer cancel()
+	// Create a new request with the context
+	req, err := http.NewRequestWithContext(ctx, "POST", w.suiRPC, strings.NewReader(payload))
+	if err != nil {
+		return retVal, fmt.Errorf("createAndExecReq failed to create request: %w, payload: %s", err, payload)
+	}
+
+	// Set the Content-Type header
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send the request using DefaultClient
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return retVal, fmt.Errorf("createAndExecReq failed to post: %w", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return retVal, fmt.Errorf("createAndExecReq failed to read: %w", err)
+	}
+	resp.Body.Close()
+	return body, nil
 }
