@@ -61,6 +61,7 @@ export async function execute_injective(
           `No ${environment} Core contract defined for Injective; pass --contract-address to override`
         );
       }
+      // Core CosmWasm contracts use submit_v_a_a, while bridge contracts use submit_vaa.
       execute_msg = {
         submit_v_a_a: {
           vaa: fromUint8Array(vaa),
@@ -149,7 +150,7 @@ export async function execute_injective(
       `Expected Injective execute message to have exactly one entry, found ${executeMsgEntries.length}`
     );
   }
-  const [[action, msg]] = executeMsgEntries;
+  const [action, msg] = executeMsgEntries[0];
   console.log("execute_msg", execute_msg);
   const transaction = MsgExecuteContract.fromJSON({
     sender: walletInjAddr,
