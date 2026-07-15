@@ -1,5 +1,20 @@
 SOURCE_FILES:=$(shell find contracts -name "*.sol")
 
+# List of files to flatten. These are typically the 'leaves' of the
+# dependendency tree, i.e. the contracts that actually get deployed on-chain.
+# Proxies and implementations.
+FLATTEN_FILES:= contracts/Implementation.sol \
+                contracts/Wormhole.sol \
+                contracts/bridge/BridgeImplementation.sol \
+                contracts/bridge/TokenBridge.sol \
+                contracts/bridge/token/TokenImplementation.sol \
+                contracts/bridge/token/Token.sol \
+                contracts/nft/NFTBridgeImplementation.sol \
+                contracts/nft/NFTBridgeEntrypoint.sol \
+                contracts/nft/token/NFT.sol \
+                contracts/nft/token/NFTImplementation.sol \
+                contracts/nft/token/NFT.sol
+
 .PHONY: dependencies test clean all
 
 all: build
@@ -17,38 +32,51 @@ node_modules: package-lock.json
 # When adding a new dependency, make sure to specify the exact commit hash, and
 # the --no-git and --no-commit flags (see lib/forge-std below)
 .PHONY: forge_dependencies
-forge_dependencies: lib/forge-std
+forge_dependencies: lib/forge-std lib/openzeppelin-contracts
 
 lib/forge-std:
-	forge install foundry-rs/forge-std@2c7cbfc6fbede6d7c9e6b17afe997e3fdfe22fef --no-git --no-commit
+	forge install foundry-rs/forge-std@v1.5.5 --no-git --no-commit
+
+lib/openzeppelin-contracts:
+	forge install openzeppelin/openzeppelin-contracts@0457042d93d9dfd760dbaa06a4d2f1216fdbe297 --no-git --no-commit
 
 dependencies: node_modules forge_dependencies
 
-build: node_modules ${SOURCE_FILES}
+build: forge_dependencies node_modules ${SOURCE_FILES}
 	mkdir -p build
 	touch -m build
 	npm run build
+	
+
+flattened/%.sol: contracts/%.sol node_modules
+	./sh/flatten.sh
+
+.PHONY: flattened
+flattened: $(patsubst contracts/%, flattened/%, $(FLATTEN_FILES))
 
 .env: .env.test
 	cp $< $@
 
-test: test-forge test-ganache
-
-.PHONY: test-ganache
-test-ganache: build .env dependencies
-	@if pgrep ganache-cli; then echo "Error: ganache-cli already running. Stop it before running tests"; exit 1; fi
-	npx ganache-cli -e 10000 --deterministic --time="1970-01-01T00:00:00+00:00" > ganache.log &
-	sleep 5
-	npm test || (pkill ganache-cli && exit 1)
-	pkill ganache-cli || true
+test: test-forge test-identifiers
 
 .PHONY: test-upgrade
 test-upgrade: build .env node_modules
 	./simulate_upgrades
 
 .PHONY:
+test-identifiers: dependencies
+	./compare-method-identifiers.sh contracts/Implementation.sol:Implementation contracts/interfaces/IWormhole.sol:IWormhole
+	./compare-method-identifiers.sh contracts/bridge/BridgeImplementation.sol:BridgeImplementation contracts/bridge/interfaces/ITokenBridge.sol:ITokenBridge
+	./compare-method-identifiers.sh contracts/nft/NFTBridgeImplementation.sol:NFTBridgeImplementation contracts/nft/interfaces/INFTBridge.sol:INFTBridge
+
+.PHONY:
 test-forge: dependencies
-	forge test
+	forge test --no-match-test .*_KEVM # ignore KEVM tests (see PROOFS.md)
+
+# Verify that the contracts do not include PUSH0 opcodes
+test-push0: dependencies
+	forge build --extra-output evm.bytecode.opcodes
+	@if grep -qr --include \*.json PUSH0 ./build-forge; then echo "Contract uses PUSH0 instruction" 1>&2; exit 1; fi
 
 clean:
-	rm -rf ganache.log .env node_modules build
+	rm -rf .env node_modules build flattened build-forge ethers-contracts lib/forge-std lib/openzeppelin-contracts

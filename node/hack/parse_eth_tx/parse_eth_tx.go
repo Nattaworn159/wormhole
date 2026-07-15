@@ -1,5 +1,5 @@
 // To compile:
-//   go build --ldflags '-extldflags "-Wl,--allow-multiple-definition"' -o parse_eth_tx
+//   go build -o parse_eth_tx
 // Usage:
 //   ./parse_eth_tx -chainID=14 -ethRPC=wss://alfajores-forno.celo-testnet.org/ws -contractAddr=0x88505117CA88e7dd2eC6EA1E13f0948db2D50D56 -tx=0x20a1e7e491dd82b6b33db0820e88a96b58bac28d65770ea73af80e457745aab1
 
@@ -10,11 +10,12 @@ import (
 	"flag"
 	"log"
 
-	"github.com/certusone/wormhole/node/pkg/celo"
-	"github.com/certusone/wormhole/node/pkg/common"
-	"github.com/certusone/wormhole/node/pkg/ethereum"
-	"github.com/certusone/wormhole/node/pkg/vaa"
+	"github.com/certusone/wormhole/node/pkg/watchers/evm"
+	"github.com/certusone/wormhole/node/pkg/watchers/evm/connectors"
+	"go.uber.org/zap"
+
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 )
 
 var (
@@ -34,27 +35,18 @@ func main() {
 
 	ctx := context.Background()
 
-	var ethIntf common.Ethish
-	if chainID == vaa.ChainIDCelo {
-		ethIntf = &celo.CeloImpl{NetworkName: "celo"}
-	} else {
-		ethIntf = &ethereum.EthImpl{NetworkName: "eth"}
-	}
-
-	err := ethIntf.DialContext(ctx, *flagEthRPC)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	contractAddr := ethCommon.HexToAddress(*flagContractAddr)
+
+	var ethIntf connectors.Connector
+	var err error
+	ethIntf, err = connectors.NewEthereumBaseConnector(ctx, "", *flagEthRPC, contractAddr, zap.L())
+	if err != nil {
+		log.Fatalf("dialing eth client failed: %v", err)
+	}
+
 	transactionHash := ethCommon.HexToHash(*flagTx)
 
-	err = ethIntf.NewAbiFilterer(contractAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	block, msgs, err := ethereum.MessageEventsForTransaction(ctx, ethIntf, contractAddr, chainID, transactionHash)
+	block, msgs, err := evm.MessageEventsForTransaction(ctx, ethIntf, contractAddr, chainID, transactionHash)
 	if err != nil {
 		log.Fatal(err)
 	}

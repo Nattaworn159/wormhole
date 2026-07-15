@@ -80,7 +80,7 @@ Proposed bridge interface:
 
 `setFees(VAA fee_payload)` - Update the fees using a `SetMessageFee` VAA
 
-`transferFees(VAA transfer_payload)` - Transfer fees using a `TransderFees` VAA
+`transferFees(VAA transfer_payload)` - Transfer fees using a `TransferFees` VAA
 
 ---
 
@@ -101,6 +101,8 @@ Fee uint256
 ```
 
 TransferFees:
+
+> **NOTE:** The Wormhole CosmWasm Core Contract does not conform to this spec. The `Amount` and `To` fields are in reverse order. (Ref: [CosmWasm Core Contract](../cosmwasm/contracts/wormhole/src/state.rs#L386-L397))
 
 ```
 // Core Wormhole Module

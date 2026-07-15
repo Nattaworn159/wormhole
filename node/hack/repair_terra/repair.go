@@ -1,3 +1,4 @@
+//nolint:noctx // this is a hack
 package main
 
 import (
@@ -6,7 +7,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,31 +16,36 @@ import (
 
 	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/db"
+	"github.com/wormhole-foundation/wormhole/sdk"
 	"go.uber.org/zap"
 
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	nodev1 "github.com/certusone/wormhole/node/pkg/proto/node/v1"
-	cosmwasm "github.com/certusone/wormhole/node/pkg/terra"
-	"github.com/certusone/wormhole/node/pkg/vaa"
+	"github.com/certusone/wormhole/node/pkg/watchers/cosmwasm"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 
 	"github.com/tidwall/gjson"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var fcdMap = map[vaa.ChainID]string{
 	vaa.ChainIDTerra:  "https://fcd.terra.dev",
 	vaa.ChainIDTerra2: "https://phoenix-fcd.terra.dev",
+	vaa.ChainIDXpla:   "https://dimension-fcd.xpla.dev",
 }
 
 var coreContractMap = map[vaa.ChainID]string{
 	vaa.ChainIDTerra:  "terra1dq03ugtd40zu9hcgdzrsq6z2z4hwhc9tqk2uy5",
 	vaa.ChainIDTerra2: "terra12mrnzvhx3rpej6843uge2yyfppfyd3u9c3uq223q8sl48huz9juqffcnhp",
+	vaa.ChainIDXpla:   "xpla1jn8qmdda5m6f6fqu9qv46rt7ajhklg40ukpqchkejcvy8x7w26cqxamv3w",
 }
 
 var emitterMap = map[vaa.ChainID]string{
 	vaa.ChainIDTerra:  "0000000000000000000000007cf7b764e38a0a5e967972c1df77d432510564e2",
 	vaa.ChainIDTerra2: "a463ad028fb79679cfc8ce1efba35ac0e77b35080a1abe9bebe83461f176b0a3",
+	vaa.ChainIDXpla:   "8f9cf727175353b17a5f574270e370776123d90fd74956ae4277962b4fdee24c",
 }
 
 type Emitter struct {
@@ -55,7 +61,7 @@ var (
 )
 
 func getAdminClient(ctx context.Context, addr string) (*grpc.ClientConn, error, nodev1.NodePrivilegedServiceClient) {
-	conn, err := grpc.DialContext(ctx, fmt.Sprintf("unix:///%s", addr), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, fmt.Sprintf("unix:///%s", addr), grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	if err != nil {
 		log.Fatalf("failed to connect to %s: %v", addr, err)
@@ -75,7 +81,7 @@ func getSequencesForTxhash(txhash string, fcd string, contractAddressLogKey stri
 		return []uint64{}, fmt.Errorf("failed to get message: %w", err)
 	}
 	defer resp.Body.Close()
-	txBody, err := ioutil.ReadAll(resp.Body)
+	txBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return []uint64{}, fmt.Errorf("failed to read message: %w", err)
 	}
@@ -109,7 +115,7 @@ func getSequencesForTxhash(txhash string, fcd string, contractAddressLogKey stri
 	return sequences, nil
 }
 
-// This was stolen from pkg/terra/watcher.go
+// This was stolen from pkg/cosmwasm/watcher.go
 func EventsToMessagePublications(contract string, txHash string, events []gjson.Result, chainID vaa.ChainID, contractAddressLogKey string) []*common.MessagePublication {
 	msgs := make([]*common.MessagePublication, 0, len(events))
 	for _, event := range events {
@@ -231,7 +237,7 @@ func EventsToMessagePublications(contract string, txHash string, events []gjson.
 			continue
 		}
 		messagePublication := &common.MessagePublication{
-			TxHash:           txHashValue,
+			TxID:             txHashValue.Bytes(),
 			Timestamp:        time.Unix(blockTimeInt, 0),
 			Nonce:            uint32(nonceInt),
 			Sequence:         sequenceInt,
@@ -292,7 +298,7 @@ func main() {
 		EmitterChain:   uint32(chainID),
 		EmitterAddress: emitter.Emitter,
 		RpcBackfill:    true,
-		BackfillNodes:  common.PublicRPCEndpoints,
+		BackfillNodes:  sdk.PublicRPCEndpoints,
 	}
 	resp, err := admin.FindMissingMessages(ctx, &msg)
 	if err != nil {
@@ -344,7 +350,7 @@ func main() {
 		}
 		defer resp.Body.Close()
 
-		blocksBody, err := ioutil.ReadAll(resp.Body)
+		blocksBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			log.Fatalf("failed to read log: %v", err)
 			continue
@@ -396,7 +402,7 @@ func main() {
 						}
 					}
 				}
-				if seq <= uint64(lowest) {
+				if seq <= lowest {
 					// We are done
 					log.Println("Finished!")
 					return

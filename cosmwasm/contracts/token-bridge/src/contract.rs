@@ -1,120 +1,47 @@
-use cw20::{
-    BalanceResponse,
-    TokenInfoResponse,
-};
-use cw20_base::msg::{
-    ExecuteMsg as TokenMsg,
-    QueryMsg as TokenQuery,
-};
+use cw20::{BalanceResponse, TokenInfoResponse};
+use cw20_base::msg::{ExecuteMsg as TokenMsg, QueryMsg as TokenQuery};
 use cw20_wrapped_2::msg::{
-    ExecuteMsg as WrappedMsg,
-    InitHook,
-    InstantiateMsg as WrappedInit,
-    QueryMsg as WrappedQuery,
+    ExecuteMsg as WrappedMsg, InitHook, InstantiateMsg as WrappedInit, QueryMsg as WrappedQuery,
     WrappedAssetInfoResponse,
 };
 use std::{
-    cmp::{
-        max,
-        min,
-    },
+    cmp::{max, min},
     str::FromStr,
 };
-use terraswap::asset::{
-    Asset,
-    AssetInfo,
-};
 
-use wormhole::{
+use cw_wormhole::{
     byte_utils::{
-        extend_address_to_32,
-        extend_address_to_32_array,
-        extend_string_to_32,
-        get_string_from_32,
+        extend_address_to_32, extend_address_to_32_array, extend_string_to_32, get_string_from_32,
         ByteUtils,
     },
     error::ContractError,
-    msg::{
-        ExecuteMsg as WormholeExecuteMsg,
-        QueryMsg as WormholeQueryMsg,
-    },
-    state::{
-        vaa_archive_add,
-        vaa_archive_check,
-        GovernancePacket,
-        ParsedVAA,
-    },
+    msg::{ExecuteMsg as WormholeExecuteMsg, QueryMsg as WormholeQueryMsg},
+    state::{vaa_archive_add, vaa_archive_check, GovernancePacket, ParsedVAA},
 };
 
-#[allow(unused_imports)]
+#[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 
 use cosmwasm_std::{
-    coin,
-    to_binary,
-    BankMsg,
-    Binary,
-    CanonicalAddr,
-    CosmosMsg,
-    Deps,
-    DepsMut,
-    Empty,
-    Env,
-    MessageInfo,
-    QueryRequest,
-    Reply,
-    Response,
-    StdError,
-    StdResult,
-    SubMsg,
-    Uint128,
-    WasmMsg,
+    coin, to_binary, BankMsg, Binary, CanonicalAddr, CosmosMsg, Deps, DepsMut, Empty, Env,
+    MessageInfo, QueryRequest, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg,
     WasmQuery,
 };
 
 use crate::{
     msg::{
-        ExecuteMsg,
-        ExternalIdResponse,
-        InstantiateMsg,
-        MigrateMsg,
-        QueryMsg,
-        TransferInfoResponse,
-        WrappedRegistryResponse,
+        Asset, AssetInfo, ChainRegistrationResponse, CompleteTransferResponse, ExecuteMsg,
+        ExternalIdResponse, InstantiateMsg, IsVaaRedeemedResponse, MigrateMsg, QueryMsg,
+        TransferInfoResponse, WrappedRegistryResponse,
     },
     state::{
-        bridge_contracts,
-        bridge_contracts_read,
-        bridge_deposit,
-        config,
-        config_read,
-        config_read_legacy,
-        is_wrapped_asset,
-        is_wrapped_asset_read,
-        receive_native,
-        send_native,
-        wrapped_asset,
-        wrapped_asset_read,
-        wrapped_asset_seq,
-        wrapped_asset_seq_read,
-        wrapped_transfer_tmp,
-        Action,
-        AssetMeta,
-        ConfigInfo,
-        ConfigInfoLegacy,
-        RegisterChain,
-        TokenBridgeMessage,
-        TransferInfo,
-        TransferState,
-        TransferWithPayloadInfo,
-        UpgradeContract,
+        bridge_contracts, bridge_contracts_read, bridge_deposit, config, config_read,
+        is_wrapped_asset, is_wrapped_asset_read, receive_native, send_native, wrapped_asset,
+        wrapped_asset_read, wrapped_asset_seq, wrapped_asset_seq_read, wrapped_transfer_tmp,
+        Action, AssetMeta, ConfigInfo, RegisterChain, TokenBridgeMessage, TransferInfo,
+        TransferState, TransferWithPayloadInfo, UpgradeContract,
     },
-    token_address::{
-        ContractId,
-        ExternalTokenId,
-        TokenId,
-        WrappedCW20,
-    },
+    token_address::{ContractId, ExternalTokenId, TokenId, WrappedCW20},
 };
 
 type HumanAddr = String;
@@ -134,44 +61,50 @@ pub enum TransferType<A> {
 /// Ok(Response::default())
 /// ```
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
-    // This migration adds a new field to the [`ConfigInfo`] struct. The
-    // state stored on chain has the old version, so we first parse it as
-    // [`ConfigInfoLegacy`], then add the new fields, and write it back as [`ConfigInfo`].
-    // Since the only place the contract with the legacy state is deployed is
-    // terra2, we just hardcode the new value here for that chain.
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    // // This migration adds a new field to the [`ConfigInfo`] struct. The
+    // // state stored on chain has the old version, so we first parse it as
+    // // [`ConfigInfoLegacy`], then add the new fields, and write it back as [`ConfigInfo`].
+    // // Since the only place the contract with the legacy state is deployed is
+    // // terra2, we just hardcode the new value here for that chain.
 
-    // 1. make sure this contract doesn't already have the new ConfigInfo struct
-    // in storage. Note that this check is not strictly necessary, as the
-    // upgrade will only be issued for terra2, and no new chains. However, it is
-    // good practice to ensure that migration code cannot be run twice, which
-    // this check achieves.
-    if config_read(deps.storage).load().is_ok() {
-        return Err(StdError::generic_err(
-            "Can't migrate; this contract already has a new ConfigInfo struct",
-        ));
-    }
+    // // 1. make sure this contract doesn't already have the new ConfigInfo struct
+    // // in storage. Note that this check is not strictly necessary, as the
+    // // upgrade will only be issued for terra2, and no new chains. However, it is
+    // // good practice to ensure that migration code cannot be run twice, which
+    // // this check achieves.
+    // if config_read(deps.storage).load().is_ok() {
+    //     return Err(StdError::generic_err(
+    //         "Can't migrate; this contract already has a new ConfigInfo struct",
+    //     ));
+    // }
 
-    // 2. parse old state
-    let ConfigInfoLegacy {
-        gov_chain,
-        gov_address,
-        wormhole_contract,
-        wrapped_asset_code_id,
-    } = config_read_legacy(deps.storage).load()?;
+    // // 2. parse old state
+    // let ConfigInfoLegacy {
+    //     gov_chain,
+    //     gov_address,
+    //     wormhole_contract,
+    //     wrapped_asset_code_id,
+    // } = config_read_legacy(deps.storage).load()?;
 
-    // 3. store new state with terra2 values hardcoded
-    let chain_id = 18;
+    // // 3. store new state with terra2 values hardcoded
+    // let chain_id = 18;
+    // let native_denom = "uluna".to_string();
+    // let native_symbol = "LUNA".to_string();
+    // let native_decimals = 6;
 
-    let config_info = ConfigInfo {
-        gov_chain,
-        gov_address,
-        wormhole_contract,
-        wrapped_asset_code_id,
-        chain_id,
-    };
+    // let config_info = ConfigInfo {
+    //     gov_chain,
+    //     gov_address,
+    //     wormhole_contract,
+    //     wrapped_asset_code_id,
+    //     chain_id,
+    //     native_denom,
+    //     native_symbol,
+    //     native_decimals
+    // };
 
-    config(deps.storage).save(&config_info)?;
+    // config(deps.storage).save(&config_info)?;
     Ok(Response::default())
 }
 
@@ -189,6 +122,9 @@ pub fn instantiate(
         wormhole_contract: msg.wormhole_contract,
         wrapped_asset_code_id: msg.wrapped_asset_code_id,
         chain_id: msg.chain_id,
+        native_denom: msg.native_denom,
+        native_symbol: msg.native_symbol,
+        native_decimals: msg.native_decimals,
     };
     config(deps.storage).save(&state)?;
 
@@ -304,10 +240,16 @@ fn parse_vaa(deps: Deps, block_time: u64, data: &Binary) -> StdResult<ParsedVAA>
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
+        ExecuteMsg::SubmitVaa { data } => submit_vaa(deps, env, info, &data),
+
+        // The following actions are disabled in "shutdown" mode
+        #[cfg(feature = "full")]
         ExecuteMsg::RegisterAssetHook {
             chain,
             token_address,
         } => handle_register_asset(deps, env, info, chain, token_address),
+
+        #[cfg(feature = "full")]
         ExecuteMsg::InitiateTransfer {
             asset,
             recipient_chain,
@@ -325,6 +267,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             TransferType::WithoutPayload,
             nonce,
         ),
+
+        #[cfg(feature = "full")]
         ExecuteMsg::InitiateTransferWithPayload {
             asset,
             recipient_chain,
@@ -345,15 +289,26 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             },
             nonce,
         ),
+
+        #[cfg(feature = "full")]
         ExecuteMsg::DepositTokens {} => deposit_tokens(deps, env, info),
+
+        #[cfg(feature = "full")]
         ExecuteMsg::WithdrawTokens { asset } => withdraw_tokens(deps, env, info, asset),
-        ExecuteMsg::SubmitVaa { data } => submit_vaa(deps, env, info, &data),
+
+        #[cfg(feature = "full")]
         ExecuteMsg::CreateAssetMeta { asset_info, nonce } => {
             handle_create_asset_meta(deps, env, info, asset_info, nonce)
         }
+
+        #[cfg(feature = "full")]
         ExecuteMsg::CompleteTransferWithPayload { data, relayer } => {
             handle_complete_transfer_with_payload(deps, env, info, &data, &relayer)
         }
+
+        // When in "shutdown" mode, we reject any other action
+        #[cfg(not(feature = "full"))]
+        _ => Err(StdError::generic_err("Invalid during shutdown mode")),
     }
 }
 
@@ -440,8 +395,8 @@ fn handle_register_asset(
 
     Ok(Response::new()
         .add_attribute("action", "register_asset")
-        .add_attribute("token_chain", format!("{:?}", chain))
-        .add_attribute("token_address", format!("{:?}", token_address))
+        .add_attribute("token_chain", format!("{chain:?}"))
+        .add_attribute("token_address", format!("{token_address:?}"))
         .add_attribute("contract_addr", info.sender))
 }
 
@@ -469,13 +424,11 @@ fn handle_attest_meta(
 
     let token_address: [u8; 32] = match token_id {
         TokenId::Bank { denom } => Err(StdError::generic_err(format!(
-            "{} is native to this chain and should not be attested",
-            denom
+            "{denom} is native to this chain and should not be attested"
         ))),
         TokenId::Contract(ContractId::NativeCW20 { contract_address }) => {
             Err(StdError::generic_err(format!(
-                "Contract {} is native to this chain and should not be attested",
-                contract_address
+                "Contract {contract_address} is native to this chain and should not be attested"
             )))
         }
         TokenId::Contract(ContractId::ForeignToken {
@@ -610,16 +563,19 @@ fn handle_create_asset_meta_native_token(
 ) -> StdResult<Response> {
     let cfg = config_read(deps.storage).load()?;
 
-    let symbol = format_native_denom_symbol(&denom);
+    if denom != cfg.native_denom {
+        return Err(StdError::generic_err("unsupported native token"));
+    }
+
     let token_id = TokenId::Bank { denom };
     let external_id = token_id.store(deps.storage)?;
 
     let meta: AssetMeta = AssetMeta {
         token_chain: cfg.chain_id,
         token_address: external_id.clone(),
-        decimals: 6,
-        symbol: extend_string_to_32(&symbol),
-        name: extend_string_to_32(&symbol),
+        decimals: cfg.native_decimals,
+        symbol: extend_string_to_32(&cfg.native_symbol),
+        name: extend_string_to_32(&cfg.native_symbol),
     };
     let token_bridge_message = TokenBridgeMessage {
         action: Action::ATTEST_META,
@@ -636,7 +592,7 @@ fn handle_create_asset_meta_native_token(
             funds: info.funds,
         }))
         .add_attribute("meta.token_chain", cfg.chain_id.to_string())
-        .add_attribute("meta.symbol", symbol)
+        .add_attribute("meta.symbol", cfg.native_symbol)
         .add_attribute("meta.asset_id", hex::encode(external_id.serialize()))
         .add_attribute("meta.nonce", nonce.to_string())
         .add_attribute("meta.block_time", env.block.time.seconds().to_string()))
@@ -708,6 +664,9 @@ fn submit_vaa(
     let (vaa, payload) = parse_and_archive_vaa(deps.branch(), env.clone(), data)?;
     match payload {
         Either::Left(governance_packet) => handle_governance_payload(deps, env, &governance_packet),
+
+        // In "shutdown" mode, we only handle governance payloads
+        #[cfg(feature = "full")]
         Either::Right(message) => match message.action {
             Action::TRANSFER => {
                 let sender = info.sender.to_string();
@@ -732,6 +691,9 @@ fn submit_vaa(
             ),
             _ => ContractError::InvalidVAAAction.std_err(),
         },
+
+        #[cfg(not(feature = "full"))]
+        _ => ContractError::InvalidVAAAction.std_err(),
     }
 }
 
@@ -883,7 +845,9 @@ fn handle_complete_transfer_token(
     let (not_supported_amount, mut amount) = transfer_info.amount;
     let (not_supported_fee, mut fee) = transfer_info.fee;
 
-    amount = amount.checked_sub(fee).unwrap();
+    amount = amount
+        .checked_sub(fee)
+        .ok_or_else(|| StdError::generic_err("Insufficient funds"))?;
 
     // Check high 128 bit of amount value to be empty
     if not_supported_amount != 0 || not_supported_fee != 0 {
@@ -923,6 +887,16 @@ fn handle_complete_transfer_token(
                 }))
             }
 
+            // serialize response data that will be returned to the caller
+            let response_data = to_binary(&CompleteTransferResponse {
+                contract: Some(contract_addr.clone()),
+                denom: None,
+                recipient: recipient.clone().into_string(),
+                amount: amount.into(),
+                relayer: relayer_address.to_string(),
+                fee: fee.into(),
+            })?;
+
             Ok(Response::new()
                 .add_messages(messages)
                 .add_attribute("action", "complete_transfer_wrapped")
@@ -930,7 +904,8 @@ fn handle_complete_transfer_token(
                 .add_attribute("recipient", recipient)
                 .add_attribute("amount", amount.to_string())
                 .add_attribute("relayer", relayer_address)
-                .add_attribute("fee", fee.to_string()))
+                .add_attribute("fee", fee.to_string())
+                .set_data(response_data))
         }
         ContractId::NativeCW20 { contract_address } => {
             // note -- here the amount is the amount the recipient will receive;
@@ -969,6 +944,16 @@ fn handle_complete_transfer_token(
                 }))
             }
 
+            // serialize response data that will be returned to the caller
+            let response_data = to_binary(&CompleteTransferResponse {
+                contract: Some(contract_address.to_string()),
+                denom: None,
+                recipient: recipient.clone().into_string(),
+                amount: amount.into(),
+                relayer: relayer_address.to_string(),
+                fee: fee.into(),
+            })?;
+
             Ok(Response::new()
                 .add_messages(messages)
                 .add_attribute("action", "complete_transfer_native")
@@ -976,7 +961,8 @@ fn handle_complete_transfer_token(
                 .add_attribute("contract", contract_address)
                 .add_attribute("amount", amount.to_string())
                 .add_attribute("relayer", relayer_address)
-                .add_attribute("fee", fee.to_string()))
+                .add_attribute("fee", fee.to_string())
+                .set_data(response_data))
         }
     }
 }
@@ -1027,9 +1013,11 @@ fn handle_complete_transfer_token_native(
     };
 
     let (not_supported_amount, mut amount) = transfer_info.amount;
-    let (not_supported_fee, fee) = transfer_info.fee;
+    let (not_supported_fee, mut fee) = transfer_info.fee;
 
-    amount = amount.checked_sub(fee).unwrap();
+    amount = amount
+        .checked_sub(fee)
+        .ok_or_else(|| StdError::generic_err("Insufficient funds"))?;
 
     // Check high 128 bit of amount value to be empty
     if not_supported_amount != 0 || not_supported_fee != 0 {
@@ -1038,6 +1026,12 @@ fn handle_complete_transfer_token_native(
 
     let external_address = ExternalTokenId::from_bank_token(&denom)?;
     receive_native(deps.storage, &external_address, Uint128::new(amount + fee))?;
+
+    // undo normalization to 8 decimals
+    let decimals = cfg.native_decimals;
+    let multiplier = 10u128.pow((max(decimals, 8u8) - 8u8) as u32);
+    amount = amount.checked_mul(multiplier).unwrap();
+    fee = fee.checked_mul(multiplier).unwrap();
 
     let mut messages = vec![CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient.to_string(),
@@ -1051,6 +1045,16 @@ fn handle_complete_transfer_token_native(
         }));
     }
 
+    // serialize response data that will be returned to the caller
+    let response_data = to_binary(&CompleteTransferResponse {
+        contract: None,
+        denom: Some(denom.clone()),
+        recipient: recipient.clone().into_string(),
+        amount: amount.into(),
+        relayer: relayer_address.to_string(),
+        fee: fee.into(),
+    })?;
+
     Ok(Response::new()
         .add_messages(messages)
         .add_attribute("action", "complete_transfer_terra_native")
@@ -1058,7 +1062,8 @@ fn handle_complete_transfer_token_native(
         .add_attribute("denom", denom)
         .add_attribute("amount", amount.to_string())
         .add_attribute("relayer", relayer_address)
-        .add_attribute("fee", fee.to_string()))
+        .add_attribute("fee", fee.to_string())
+        .set_data(response_data))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1132,7 +1137,7 @@ fn handle_initiate_transfer_token(
     let mut submessages: Vec<SubMsg> = vec![];
 
     // we'll only need this for payload 3 transfers
-    let sender_address = deps.api.addr_canonicalize(&info.sender.to_string())?;
+    let sender_address = deps.api.addr_canonicalize(info.sender.as_ref())?;
     let sender_address = extend_address_to_32_array(&sender_address);
 
     match is_wrapped_asset_read(deps.storage).load(asset_canonical.as_slice()) {
@@ -1218,18 +1223,19 @@ fn handle_initiate_transfer_token(
             let multiplier = 10u128.pow((max(decimals, 8u8) - 8u8) as u32);
 
             // chop off dust
-            amount = Uint128::new(
-                amount
-                    .u128()
-                    .checked_sub(amount.u128().checked_rem(multiplier).unwrap())
-                    .unwrap(),
-            );
+            amount = amount
+                .u128()
+                .checked_rem(multiplier)
+                .and_then(|rem| amount.u128().checked_sub(rem))
+                .map(Uint128::new)
+                .ok_or_else(|| StdError::generic_err("Insufficient funds"))?;
 
-            fee = Uint128::new(
-                fee.u128()
-                    .checked_sub(fee.u128().checked_rem(multiplier).unwrap())
-                    .unwrap(),
-            );
+            fee = fee
+                .u128()
+                .checked_rem(multiplier)
+                .and_then(|rem| fee.u128().checked_sub(rem))
+                .map(Uint128::new)
+                .ok_or_else(|| StdError::generic_err("Invalid fee"))?;
 
             // This is a regular asset, transfer its balance
             submessages.push(SubMsg::reply_on_success(
@@ -1340,28 +1346,24 @@ fn handle_initiate_transfer_token(
         .add_attribute("transfer.block_time", env.block.time.seconds().to_string()))
 }
 
-fn format_native_denom_symbol(denom: &str) -> String {
-    if denom == "uluna" {
-        return "LUNA".to_string();
-    }
-    //TODO: is there better formatting to do here?
-    denom.to_uppercase()
-}
-
 #[allow(clippy::too_many_arguments)]
 fn handle_initiate_transfer_native_token(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     denom: String,
-    amount: Uint128,
+    mut amount: Uint128,
     recipient_chain: u16,
     recipient: [u8; 32],
-    fee: Uint128,
+    mut fee: Uint128,
     transfer_type: TransferType<Vec<u8>>,
     nonce: u32,
 ) -> StdResult<Response> {
     let cfg = config_read(deps.storage).load()?;
+
+    if denom != cfg.native_denom {
+        return Err(StdError::generic_err("unsupported native token"));
+    }
 
     if recipient_chain == cfg.chain_id {
         return ContractError::SameSourceAndTarget.std_err();
@@ -1372,6 +1374,23 @@ fn handle_initiate_transfer_native_token(
     if fee > amount {
         return Err(StdError::generic_err("fee greater than sent amount"));
     }
+
+    let decimals = cfg.native_decimals;
+    let multiplier = 10u128.pow((max(decimals, 8u8) - 8u8) as u32);
+
+    // chop off dust
+    amount = Uint128::new(
+        amount
+            .u128()
+            .checked_sub(amount.u128().checked_rem(multiplier).unwrap())
+            .unwrap(),
+    );
+
+    fee = Uint128::new(
+        fee.u128()
+            .checked_sub(fee.u128().checked_rem(multiplier).unwrap())
+            .unwrap(),
+    );
 
     let deposit_key = format!("{}:{}", info.sender, denom);
     bridge_deposit(deps.storage).update(deposit_key.as_bytes(), |current: Option<Uint128>| {
@@ -1386,6 +1405,10 @@ fn handle_initiate_transfer_native_token(
     let asset_chain: u16 = cfg.chain_id;
     // we store here just in case the token is transferred out before it's attested
     let asset_address = TokenId::Bank { denom }.store(deps.storage)?;
+
+    // convert to normalized amounts before recording & posting vaa
+    amount = Uint128::new(amount.u128().checked_div(multiplier).unwrap());
+    fee = Uint128::new(fee.u128().checked_div(multiplier).unwrap());
 
     send_native(deps.storage, &asset_address, amount)?;
 
@@ -1405,7 +1428,7 @@ fn handle_initiate_transfer_native_token(
             }
         }
         TransferType::WithPayload { payload } => {
-            let sender_address = deps.api.addr_canonicalize(&info.sender.to_string())?;
+            let sender_address = deps.api.addr_canonicalize(info.sender.as_ref())?;
             let sender_address = extend_address_to_32_array(&sender_address);
             let transfer_info = TransferWithPayloadInfo {
                 amount: (0, amount.u128()),
@@ -1456,6 +1479,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::TransferInfo { vaa } => to_binary(&query_transfer_info(deps, env, &vaa)?),
         QueryMsg::ExternalId { external_id } => to_binary(&query_external_id(deps, external_id)?),
+        QueryMsg::IsVaaRedeemed { vaa } => to_binary(&query_is_vaa_redeemed(deps, env, &vaa)?),
+        QueryMsg::ChainRegistration { chain } => {
+            query_chain_registration(deps, chain).and_then(|r| to_binary(&r))
+        }
     }
 }
 
@@ -1522,8 +1549,22 @@ fn query_transfer_info(deps: Deps, env: Env, vaa: &Binary) -> StdResult<Transfer
                 payload: info.payload,
             })
         }
-        other => Err(StdError::generic_err(format!("Invalid action: {}", other))),
+        other => Err(StdError::generic_err(format!("Invalid action: {other}"))),
     }
+}
+
+fn query_is_vaa_redeemed(deps: Deps, _env: Env, vaa: &Binary) -> StdResult<IsVaaRedeemedResponse> {
+    let vaa = ParsedVAA::deserialize(vaa)?;
+    Ok(IsVaaRedeemedResponse {
+        is_redeemed: vaa_archive_check(deps.storage, vaa.hash.as_slice()),
+    })
+}
+
+fn query_chain_registration(deps: Deps, chain: u16) -> StdResult<ChainRegistrationResponse> {
+    bridge_contracts_read(deps.storage)
+        .load(&chain.to_be_bytes())
+        .map(Binary::from)
+        .map(|address| ChainRegistrationResponse { address })
 }
 
 fn is_governance_emitter(cfg: &ConfigInfo, emitter_chain: u16, emitter_address: &[u8]) -> bool {

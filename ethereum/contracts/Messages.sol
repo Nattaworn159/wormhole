@@ -15,7 +15,8 @@ contract Messages is Getters {
     /// @dev parseAndVerifyVM serves to parse an encodedVM and wholy validate it for consumption
     function parseAndVerifyVM(bytes calldata encodedVM) public view returns (Structs.VM memory vm, bool valid, string memory reason) {
         vm = parseVM(encodedVM);
-        (valid, reason) = verifyVM(vm);
+        /// setting checkHash to false as we can trust the hash field in this case given that parseVM computes and then sets the hash field above
+        (valid, reason) = verifyVMInternal(vm, false);
     }
 
    /**
@@ -24,10 +25,45 @@ contract Messages is Getters {
     *  - it aims to ensure the guardianSet is not expired
     *  - it aims to ensure the VM has reached quorum
     *  - it aims to verify the signatures provided against the guardianSet
+    *  - it aims to verify the hash field provided against the contents of the vm
     */
     function verifyVM(Structs.VM memory vm) public view returns (bool valid, string memory reason) {
+        (valid, reason) = verifyVMInternal(vm, true);    
+    }
+
+    /**
+    * @dev `verifyVMInternal` serves to validate an arbitrary vm against a valid Guardian set
+    * if checkHash is set then the hash field of the vm is verified against the hash of its contents
+    * in the case that the vm is securely parsed and the hash field can be trusted, checkHash can be set to false
+    * as the check would be redundant
+    */
+    function verifyVMInternal(Structs.VM memory vm, bool checkHash) internal view returns (bool valid, string memory reason) {
         /// @dev Obtain the current guardianSet for the guardianSetIndex provided
         Structs.GuardianSet memory guardianSet = getGuardianSet(vm.guardianSetIndex);
+
+        /**
+         * Verify that the hash field in the vm matches with the hash of the contents of the vm if checkHash is set
+         * WARNING: This hash check is critical to ensure that the vm.hash provided matches with the hash of the body.
+         * Without this check, it would not be safe to call verifyVM on it's own as vm.hash can be a valid signed hash
+         * but the body of the vm could be completely different from what was actually signed by the guardians
+         */
+        if(checkHash){
+            bytes memory body = abi.encodePacked(
+                vm.timestamp,
+                vm.nonce,
+                vm.emitterChainId,
+                vm.emitterAddress,
+                vm.sequence,
+                vm.consistencyLevel,
+                vm.payload
+            );
+
+            bytes32 vmHash = keccak256(abi.encodePacked(keccak256(body)));
+
+            if(vmHash != vm.hash){
+                return (false, "vm.hash doesn't match body");
+            }
+        }
 
        /**
         * @dev Checks whether the guardianSet has zero keys
@@ -65,6 +101,7 @@ contract Messages is Getters {
         return (true, "");
     }
 
+
     /**
      * @dev verifySignatures serves to validate arbitrary sigatures against an arbitrary guardianSet
      *  - it intentionally does not solve for expectations within guardianSet (you should use verifyVM if you need these protections)
@@ -76,6 +113,10 @@ contract Messages is Getters {
         uint256 guardianCount = guardianSet.keys.length;
         for (uint i = 0; i < signatures.length; i++) {
             Structs.Signature memory sig = signatures[i];
+            address signatory = ecrecover(hash, sig.v, sig.r, sig.s);
+            // ecrecover returns 0 for invalid signatures. We explicitly require valid signatures to avoid unexpected
+            // behaviour due to the default storage slot value also being 0.
+            require(signatory != address(0), "ecrecover failed with signature");
 
             /// Ensure that provided signature indices are ascending only
             require(i == 0 || sig.guardianIndex > lastIndex, "signature indices must be ascending");
@@ -90,7 +131,7 @@ contract Messages is Getters {
             require(sig.guardianIndex < guardianCount, "guardian index out of bounds");
 
             /// Check to see if the signer of the signature does not match a specific Guardian key at the provided index
-            if(ecrecover(hash, sig.v, sig.r, sig.s) != guardianSet.keys[sig.guardianIndex]){
+            if(signatory != guardianSet.keys[sig.guardianIndex]){
                 return (false, "VM signature invalid");
             }
         }
@@ -108,7 +149,12 @@ contract Messages is Getters {
 
         vm.version = encodedVM.toUint8(index);
         index += 1;
-        require(vm.version == 1, "VM version incompatible");
+        // SECURITY: Note that currently the VM.version is not part of the hash 
+        // and for reasons described below it cannot be made part of the hash. 
+        // This means that this field's integrity is not protected and cannot be trusted. 
+        // This is not a problem today since there is only one accepted version, but it 
+        // could be a problem if we wanted to allow other versions in the future. 
+        require(vm.version == 1, "VM version incompatible"); 
 
         vm.guardianSetIndex = encodedVM.toUint32(index);
         index += 4;
@@ -129,7 +175,13 @@ contract Messages is Getters {
             index += 1;
         }
 
-        // Hash the body
+        /*
+        Hash the body
+
+        SECURITY: Do not change the way the hash of a VM is computed! 
+        Changing it could result into two different hashes for the same observation. 
+        But xDapps rely on the hash of an observation for replay protection.
+        */
         bytes memory body = encodedVM.slice(index, encodedVM.length - index);
         vm.hash = keccak256(abi.encodePacked(keccak256(body)));
 
@@ -159,6 +211,8 @@ contract Messages is Getters {
      * @dev quorum serves solely to determine the number of signatures required to acheive quorum
      */
     function quorum(uint numGuardians) public pure virtual returns (uint numSignaturesRequiredForQuorum) {
+        // The max number of guardians is 255
+        require(numGuardians < 256, "too many guardians");
         return ((numGuardians * 2) / 3) + 1;
     }
 }

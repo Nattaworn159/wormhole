@@ -1,14 +1,14 @@
 {
   "name": "@certusone/wormhole-sdk-proto-web",
-  "version": "0.0.3",
+  "version": "0.0.7",
   "description": "Web client protobuf for interacting with Wormhole",
-  "homepage": "https://wormholenetwork.com",
+  "homepage": "https://wormhole.com",
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
   "files": [
     "lib/"
   ],
-  "repository": "https://github.com/certusone/wormhole/tree/dev.v2/sdk/js-proto-web",
+  "repository": "https://github.com/wormhole-foundation/wormhole/tree/main/sdk/js-proto-web",
   "scripts": {
     "build-deps": "cd ../.. && DOCKER_BUILDKIT=1 docker build --target node-export -f Dockerfile.proto -o type=local,dest=. .",
     "build-lib": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
@@ -32,5 +32,8 @@
     "@improbable-eng/grpc-web": "^0.15.0",
     "protobufjs": "^7.0.0",
     "rxjs": "^7.5.6"
+  },
+  "overrides": {
+    "elliptic": "^6.6.1"
   }
 }

@@ -1,4 +1,4 @@
-// contracts/Setters.sol
+// contracts/NFTBridgeSetters.sol
 // SPDX-License-Identifier: Apache 2
 
 pragma solidity ^0.8.0;
@@ -35,6 +35,7 @@ contract NFTBridgeSetters is NFTBridgeState {
     }
 
     function setTokenImplementation(address impl) internal {
+        require(impl != address(0), "invalid implementation address");
         _state.tokenImplementation = impl;
     }
 
@@ -57,5 +58,10 @@ contract NFTBridgeSetters is NFTBridgeState {
 
     function setFinality(uint8 finality) internal {
         _state.provider.finality = finality;
+    }
+
+    function setEvmChainId(uint256 evmChainId) internal {
+        require(evmChainId == block.chainid, "invalid evmChainId");
+        _state.evmChainId = evmChainId;
     }
 }

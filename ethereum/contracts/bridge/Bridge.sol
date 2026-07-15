@@ -20,6 +20,18 @@ import "./token/TokenImplementation.sol";
 contract Bridge is BridgeGovernance, ReentrancyGuard {
     using BytesLib for bytes;
 
+    /**
+     * @notice Emitted when a transfer is completed by the token bridge.
+     * @param emitterChainId Wormhole chain ID of emitter on the source chain.
+     * @param emitterAddress Address (bytes32 zero-left-padded) of emitter on the source chain.
+     * @param sequence Sequence of the Wormhole message.
+     */
+    event TransferRedeemed(
+        uint16 indexed emitterChainId,
+        bytes32 indexed emitterAddress,
+        uint64 indexed sequence
+    );
+
     /*
      *  @dev Produce a AssetMeta message for a given token
      */
@@ -309,11 +321,9 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
             fee: fee
         });
 
-        bytes memory encoded = encodeTransfer(transfer);
-
         sequence = wormhole().publishMessage{value: callValue}(
             nonce,
-            encoded,
+            encodeTransfer(transfer),
             finality()
         );
     }
@@ -333,7 +343,6 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
         uint32 nonce,
         bytes memory payload
     ) internal returns (uint64 sequence) {
-
         BridgeStructs.TransferWithPayload memory transfer = BridgeStructs
             .TransferWithPayload({
                 payloadID: 3,
@@ -346,14 +355,13 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
                 payload: payload
             });
 
-        bytes memory encoded = encodeTransferWithPayload(transfer);
-
         sequence = wormhole().publishMessage{value: callValue}(
             nonce,
-            encoded,
+            encodeTransferWithPayload(transfer),
             finality()
         );
     }
+
     function updateWrapped(bytes memory encodedVm) external returns (address token) {
         (IWormhole.VM memory vm, bool valid, string memory reason) = wormhole().parseAndVerifyVM(encodedVm);
 
@@ -472,6 +480,17 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
         _completeTransfer(encodedVm, true);
     }
 
+    /*
+     * @dev Truncate a 32 byte array to a 20 byte address.
+     *      Reverts if the array contains non-0 bytes in the first 12 bytes.
+     *
+     * @param bytes32 bytes The 32 byte array to be converted.
+     */
+    function _truncateAddress(bytes32 b) internal pure returns (address) {
+        require(bytes12(b) == 0, "invalid EVM address");
+        return address(uint160(uint256(b)));
+    }
+
     // Execute a Transfer message
     function _completeTransfer(bytes memory encodedVm, bool unwrapWETH) internal returns (bytes memory) {
         (IWormhole.VM memory vm, bool valid, string memory reason) = wormhole().parseAndVerifyVM(encodedVm);
@@ -482,7 +501,7 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
         BridgeStructs.Transfer memory transfer = _parseTransferCommon(vm.payload);
 
         // payload 3 must be redeemed by the designated proxy contract
-        address transferRecipient = address(uint160(uint256(transfer.to)));
+        address transferRecipient = _truncateAddress(transfer.to);
         if (transfer.payloadID == 3) {
             require(msg.sender == transferRecipient, "invalid sender");
         }
@@ -490,11 +509,14 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
         require(!isTransferCompleted(vm.hash), "transfer already completed");
         setTransferCompleted(vm.hash);
 
+        // emit `TransferRedeemed` event
+        emit TransferRedeemed(vm.emitterChainId, vm.emitterAddress, vm.sequence);
+
         require(transfer.toChain == chainId(), "invalid target chain");
 
         IERC20 transferToken;
         if (transfer.tokenChain == chainId()) {
-            transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
+            transferToken = IERC20(_truncateAddress(transfer.tokenAddress));
 
             // track outstanding token amounts
             bridgedIn(address(transferToken), transfer.amount);
@@ -566,11 +588,8 @@ contract Bridge is BridgeGovernance, ReentrancyGuard {
     }
 
     function verifyBridgeVM(IWormhole.VM memory vm) internal view returns (bool){
-        if (bridgeContracts(vm.emitterChainId) == vm.emitterAddress) {
-            return true;
-        }
-
-        return false;
+        require(!isFork(), "invalid fork");
+        return bridgeContracts(vm.emitterChainId) == vm.emitterAddress;
     }
 
     function encodeAssetMeta(BridgeStructs.AssetMeta memory meta) public pure returns (bytes memory encoded) {

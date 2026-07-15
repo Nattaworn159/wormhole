@@ -6,9 +6,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 )
+
+var storedVaaTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "wormhole_db_total_vaas",
+		Help: "Total number of VAAs added to database",
+	})
 
 type Database struct {
 	db *badger.DB
@@ -61,6 +69,7 @@ func VaaIDFromVAA(v *vaa.VAA) *VAAID {
 
 var (
 	ErrVAANotFound = errors.New("requested VAA not found in store")
+	nullAddr       = vaa.Address{}
 )
 
 func (i *VAAID) Bytes() []byte {
@@ -68,17 +77,10 @@ func (i *VAAID) Bytes() []byte {
 }
 
 func (i *VAAID) EmitterPrefixBytes() []byte {
-	return []byte(fmt.Sprintf("signed/%d/%s", i.EmitterChain, i.EmitterAddress))
-}
-
-func Open(path string) (*Database, error) {
-	db, err := badger.Open(badger.DefaultOptions(path))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+	if i.EmitterAddress == nullAddr {
+		return []byte(fmt.Sprintf("signed/%d", i.EmitterChain))
 	}
-	return &Database{
-		db: db,
-	}, nil
+	return []byte(fmt.Sprintf("signed/%d/%s", i.EmitterChain, i.EmitterAddress))
 }
 
 func (d *Database) Close() error {
@@ -110,7 +112,52 @@ func (d *Database) StoreSignedVAA(v *vaa.VAA) error {
 		return fmt.Errorf("failed to commit tx: %w", err)
 	}
 
+	storedVaaTotal.Inc()
+
 	return nil
+}
+
+// StoreSignedVAABatch writes multiple VAAs to the database using the BadgerDB batch API.
+// Note that the API takes care of splitting up the slice into the maximum allowed count
+// and size so we don't need to worry about that.
+func (d *Database) StoreSignedVAABatch(vaaBatch []*vaa.VAA) error {
+	batchTx := d.db.NewWriteBatch()
+	defer batchTx.Cancel()
+
+	for _, v := range vaaBatch {
+		if len(v.Signatures) == 0 {
+			panic("StoreSignedVAABatch called for unsigned VAA")
+		}
+
+		b, err := v.Marshal()
+		if err != nil {
+			panic("StoreSignedVAABatch failed to marshal VAA")
+		}
+
+		err = batchTx.Set(VaaIDFromVAA(v).Bytes(), b)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Wait for the batch to finish.
+	err := batchTx.Flush()
+	storedVaaTotal.Add(float64(len(vaaBatch)))
+	return err
+}
+
+func (d *Database) HasVAA(id VAAID) (bool, error) {
+	err := d.db.View(func(txn *badger.Txn) error {
+		_, err := txn.Get(id.Bytes())
+		return err
+	})
+	if err == nil {
+		return true, nil
+	}
+	if err == badger.ErrKeyNotFound {
+		return false, nil
+	}
+	return false, err
 }
 
 func (d *Database) GetSignedVAABytes(id VAAID) (b []byte, err error) {
@@ -179,7 +226,6 @@ func (d *Database) FindEmitterSequenceGap(prefix VAAID) (resp []uint64, firstSeq
 		// Figure out gaps.
 		for i := firstSeq; i <= lastSeq; i++ {
 			if !seqs[i] {
-				fmt.Printf("missing: %d\n", i)
 				resp = append(resp, i)
 			}
 		}

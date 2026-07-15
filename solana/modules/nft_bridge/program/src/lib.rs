@@ -1,4 +1,3 @@
-
 #![feature(adt_const_params)]
 #![allow(incomplete_features)]
 #![deny(unused_must_use)]
@@ -60,9 +59,10 @@ pub enum TokenBridgeError {
     TokenNotNative,
     UninitializedMint,
     WrongAccountOwner,
-    TokenNotNFT,
+    NonexistentTokenMetadataAccount,
     InvalidAssociatedAccount,
     InvalidRecipient,
+    NotMetadataV1Account,
 }
 
 impl From<TokenBridgeError> for SolitaireError {

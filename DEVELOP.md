@@ -4,7 +4,7 @@
 
 The following dependencies are required for local development:
 
-- [Go](https://golang.org/dl/) >= 1.17.5
+- [Go](https://golang.org/dl/) >= 1.23.3 (latest minor release is recommended)
 - [Tilt](http://tilt.dev/) >= 0.20.8
 - Any of the local Kubernetes clusters supported by Tilt.
   We strongly recommend [minikube](https://kubernetes.io/docs/setup/learning-environment/minikube/) >=
@@ -37,7 +37,7 @@ Launch the devnet:
 
     tilt up
 
-By default this runs a network consisting of one guardian, two ganache (Eth) chains, a Solana test validator, an Algorand sandbox, and LocalTerra for both Terra Classic and Terra 2. If you want to work on non-consensus parts of the code, running with a single guardian is easiest since you won't have to wait for k8s to restart all pods. See the usage guide below for arguments to customize the tilt network.
+By default this runs a network consisting of one guardian, two anvil (Eth) chains, a Solana test validator, an Algorand sandbox, and LocalTerra for both Terra Classic and Terra 2. If you want to work on non-consensus parts of the code, running with a single guardian is easiest since you won't have to wait for k8s to restart all pods. See the usage guide below for arguments to customize the tilt network.
 
 ## Usage
 
@@ -84,7 +84,7 @@ First, create an SSH key on the VM:
 
 You can then [add your public key on GitHub](https://github.com/settings/keys) and clone the repository:
 
-    git clone git@github.com:certusone/wormhole.git
+    git clone git@github.com:wormhole-foundation/wormhole.git
 
 Configure your Git identity:
 
@@ -130,25 +130,49 @@ IntelliJ's [remote development backend](https://www.jetbrains.com/remote-develop
 
 ## Tips and tricks
 
+### Generate protos (Go / TypeScript)
+
+As of [#1352](https://github.com/wormhole-foundation/wormhole/pull/1352), the tsproto generated ts files are provided in two npm packages for [node](./sdk/js-proto-node/) and [web](./sdk/js-proto-web/)
+
+As of [#1824](https://github.com/wormhole-foundation/wormhole/pull/1824), changes to the proto files must match the generated go files.
+
+To re-generate these files run `rm -rf node/pkg/proto && docker build --target go-export -f Dockerfile.proto -o type=local,dest=node .` from the root of the repo.
+
 ### Call gRPC services
+
+<!-- cspell:disable -->
 
     tools/bin/grpcurl -protoset <(tools/bin/buf build -o -) -plaintext localhost:7072 spy.v1.SpyRPCService/SubscribeSignedVAA
 
+<!-- cspell:enable -->
+
 With parameters (using proto json encoding):
+
+<!-- cspell:disable -->
 
     tools/bin/grpcurl -protoset <(tools/bin/buf build -o -) \
         -d '{"filters": [{"emitter_filter": {"emitter_address": "574108aed69daf7e625a361864b1f74d13702f2ca56de9660e566d1d8691848d", "chain_id": "CHAIN_ID_SOLANA"}}]}' \
         -plaintext localhost:7072 spy.v1.SpyRPCService/SubscribeSignedVAA
 
+<!-- cspell:enable -->
+
 ### Post messages
 
 To Solana:
 
+<!-- cspell:disable -->
+
     kubectl exec solana-devnet-0 -c setup -- client post-message Bridge1p5gheXUvJ6jGWGeCsgPKgnE3YgdGKRVCMY9o 1 confirmed ffff
+
+<!-- cspell:enable -->
 
 To Solana as CPI instruction:
 
+<!-- cspell:disable -->
+
     kubectl exec solana-devnet-0 -c setup -- client post-message --proxy CP1co2QMMoDPbsmV7PGcUTLFwyhgCgTXt25gLQ5LewE1 Bridge1p5gheXUvJ6jGWGeCsgPKgnE3YgdGKRVCMY9o 1 confirmed ffff
+
+<!-- cspell:enable -->
 
 ### Observation Requests
 
@@ -163,19 +187,6 @@ Locally compile protos to populate the buf cache:
 Set the include path:
 
 ![](https://i.imgur.com/bDij6Cu.png)
-
-### BigTable event persistence
-
-Guardian events can be persisted to a cloud BigTable instance by passing a GCP project and service account key to Tilt.
-Launch the devnet with flags supplying your database info to forward events to your cloud BigTable, rather than the local devnet BigTable emulator:
-
-    tilt up -- --num=1  --gcpProject=your-project-id --bigTableKeyPath=./your-service-account-key.json
-
-### bridge UI
-
-Run the bridge UI in devnet by supplying the `--bridge_ui` flag:
-
-    tilt up -- --bridge_ui
 
 ### Algorand
 

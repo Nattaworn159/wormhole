@@ -7,7 +7,8 @@ import (
 
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -29,7 +30,7 @@ var (
 // MaxGuardianCount specifies the maximum number of guardians supported by on-chain contracts.
 //
 // Matching constants:
-//  - MAX_LEN_GUARDIAN_KEYS in Solana contract (limited by transaction size - 19 is the maximum amount possible)
+//   - MAX_LEN_GUARDIAN_KEYS in Solana contract (limited by transaction size - 19 is the maximum amount possible)
 //
 // The Eth and Terra contracts do not specify a maximum number and support more than that,
 // but presumably, chain-specific transaction size limits will apply at some point (untested).
@@ -49,8 +50,35 @@ const MaxStateAge = 1 * time.Minute
 type GuardianSet struct {
 	// Guardian's public key hashes truncated by the ETH standard hashing mechanism (20 bytes).
 	Keys []common.Address
+
 	// On-chain set index
 	Index uint32
+
+	// quorum value for this set of keys
+	quorum int
+
+	// A map from address to index. Testing showed that, on average, a map is almost three times faster than a sequential search of the key slice.
+	// Testing also showed that the map was twice as fast as using a sorted slice and `slices.BinarySearchFunc`. That being said, on a 4GHz CPU,
+	// the sequential search takes an average of 800 nanos and the map look up takes about 260 nanos. Is this worth doing?
+	keyMap map[common.Address]int
+}
+
+// Quorum returns the current quorum value.
+func (gs *GuardianSet) Quorum() int {
+	return gs.quorum
+}
+
+func NewGuardianSet(keys []common.Address, index uint32) *GuardianSet {
+	keyMap := map[common.Address]int{}
+	for idx, key := range keys {
+		keyMap[key] = idx
+	}
+	return &GuardianSet{
+		Keys:   keys,
+		Index:  index,
+		quorum: vaa.CalculateQuorum(len(keys)),
+		keyMap: keyMap,
+	}
 }
 
 func (g *GuardianSet) KeysAsHexStrings() []string {
@@ -66,9 +94,15 @@ func (g *GuardianSet) KeysAsHexStrings() []string {
 // KeyIndex returns a given address index from the guardian set. Returns (-1, false)
 // if the address wasn't found and (addr, true) otherwise.
 func (g *GuardianSet) KeyIndex(addr common.Address) (int, bool) {
-	for n, k := range g.Keys {
-		if k == addr {
-			return n, true
+	if g.keyMap != nil {
+		if idx, found := g.keyMap[addr]; found {
+			return idx, true
+		}
+	} else {
+		for n, k := range g.Keys {
+			if k == addr {
+				return n, true
+			}
 		}
 	}
 
@@ -82,11 +116,17 @@ type GuardianSetState struct {
 	// Last heartbeat message received per guardian per p2p node. Maintained
 	// across guardian set updates - these values don't change.
 	lastHeartbeats map[common.Address]map[peer.ID]*gossipv1.Heartbeat
+	updateC        chan *gossipv1.Heartbeat
 }
 
-func NewGuardianSetState() *GuardianSetState {
+// NewGuardianSetState returns a new GuardianSetState.
+//
+// The provided channel will be pushed heartbeat updates as they are set,
+// but be aware that the channel will block guardian set updates if full.
+func NewGuardianSetState(guardianSetStateUpdateC chan *gossipv1.Heartbeat) *GuardianSetState {
 	return &GuardianSetState{
 		lastHeartbeats: map[common.Address]map[peer.ID]*gossipv1.Heartbeat{},
+		updateC:        guardianSetStateUpdateC,
 	}
 }
 
@@ -136,6 +176,9 @@ func (st *GuardianSetState) SetHeartbeat(addr common.Address, peerId peer.ID, hb
 	}
 
 	v[peerId] = hb
+	if st.updateC != nil {
+		st.updateC <- hb
+	}
 	return nil
 }
 
@@ -170,4 +213,9 @@ func (st *GuardianSetState) Cleanup() {
 			}
 		}
 	}
+}
+
+// IsSubscribedToHeartbeats returns true if the heartbeat update channel is set.
+func (st *GuardianSetState) IsSubscribedToHeartbeats() bool {
+	return st.updateC != nil
 }

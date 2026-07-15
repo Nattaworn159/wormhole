@@ -2,25 +2,26 @@ package spy
 
 import (
 	"context"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/p2p"
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	spyv1 "github.com/certusone/wormhole/node/pkg/proto/spy/v1"
 	"github.com/certusone/wormhole/node/pkg/supervisor"
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	ipfslog "github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,9 +34,12 @@ var (
 )
 
 var (
-	p2pNetworkID *string
-	p2pPort      *uint
-	p2pBootstrap *string
+	envStr *string
+
+	p2pNetworkID   *string
+	p2pPort        *uint
+	p2pBootstrap   *string
+	protectedPeers []string
 
 	statusAddr *string
 
@@ -44,12 +48,19 @@ var (
 	logLevel *string
 
 	spyRPC *string
+
+	sendTimeout *time.Duration
+
+	ethRPC      *string
+	ethContract *string
 )
 
 func init() {
-	p2pNetworkID = SpyCmd.Flags().String("network", "/wormhole/dev", "P2P network identifier")
+	envStr = SpyCmd.Flags().String("env", "", `environment (may be "testnet" or "mainnet", required unless "--bootstrap" is specified)`)
+	p2pNetworkID = SpyCmd.Flags().String("network", "", "P2P network identifier (optional for testnet or mainnet, overrides default, required for devnet)")
 	p2pPort = SpyCmd.Flags().Uint("port", 8999, "P2P UDP listener port")
-	p2pBootstrap = SpyCmd.Flags().String("bootstrap", "", "P2P bootstrap peers (comma-separated)")
+	p2pBootstrap = SpyCmd.Flags().String("bootstrap", "", "P2P bootstrap peers (optional for testnet or mainnet, overrides default, required for devnet)")
+	SpyCmd.Flags().StringSliceVarP(&protectedPeers, "protectedPeers", "", []string{}, "")
 
 	statusAddr = SpyCmd.Flags().String("statusAddr", "[::]:6060", "Listen address for status server (disabled if blank)")
 
@@ -58,6 +69,11 @@ func init() {
 	logLevel = SpyCmd.Flags().String("logLevel", "info", "Logging level (debug, info, warn, error, dpanic, panic, fatal)")
 
 	spyRPC = SpyCmd.Flags().String("spyRPC", "", "Listen address for gRPC interface")
+
+	sendTimeout = SpyCmd.Flags().Duration("sendTimeout", 5*time.Second, "Timeout for sending a message to a subscriber")
+
+	ethRPC = SpyCmd.Flags().String("ethRPC", "", "Ethereum RPC for verifying VAAs (optional)")
+	ethContract = SpyCmd.Flags().String("ethContract", "", "Ethereum core bridge address for verifying VAAs (required if ethRPC is specified)")
 }
 
 // SpyCmd represents the node command
@@ -69,22 +85,22 @@ var SpyCmd = &cobra.Command{
 
 type spyServer struct {
 	spyv1.UnimplementedSpyRPCServiceServer
-	logger *zap.Logger
-	subs   map[string]*subscription
-	subsMu sync.Mutex
+	logger          *zap.Logger
+	subsSignedVaa   map[string]*subscriptionSignedVaa
+	subsSignedVaaMu sync.Mutex
+	vaaVerifier     *VaaVerifier
 }
 
 type message struct {
 	vaaBytes []byte
 }
 
-type filter struct {
+type filterSignedVaa struct {
 	chainId     vaa.ChainID
 	emitterAddr vaa.Address
 }
-
-type subscription struct {
-	filters []filter
+type subscriptionSignedVaa struct {
+	filters []filterSignedVaa
 	ch      chan message
 }
 
@@ -92,61 +108,88 @@ func subscriptionId() string {
 	return uuid.New().String()
 }
 
-func decodeEmitterAddr(hexAddr string) (vaa.Address, error) {
-	address, err := hex.DecodeString(hexAddr)
-	if err != nil {
-		return vaa.Address{}, status.Error(codes.InvalidArgument, fmt.Sprintf("failed to decode address: %v", err))
-	}
-	if len(address) != 32 {
-		return vaa.Address{}, status.Error(codes.InvalidArgument, "address must be 32 bytes")
-	}
-
-	addr := vaa.Address{}
-	copy(addr[:], address)
-
-	return addr, nil
-}
-
-func (s *spyServer) Publish(vaaBytes []byte) error {
-	s.subsMu.Lock()
-	defer s.subsMu.Unlock()
+func (s *spyServer) PublishSignedVAA(vaaBytes []byte) error {
+	s.subsSignedVaaMu.Lock()
+	defer s.subsSignedVaaMu.Unlock()
 
 	var v *vaa.VAA
+	var err error
+	verified := s.vaaVerifier == nil
 
-	for _, sub := range s.subs {
+	for _, sub := range s.subsSignedVaa {
 		if len(sub.filters) == 0 {
-			sub.ch <- message{vaaBytes: vaaBytes}
-		} else {
-			if v == nil {
-				var err error
-				v, err = vaa.Unmarshal(vaaBytes)
+			if !verified {
+				verified = true
+				v, err = s.verifyVAA(v, vaaBytes)
 				if err != nil {
 					return err
 				}
 			}
+			sub.ch <- message{vaaBytes: vaaBytes}
+			continue
+		}
 
-			for _, fi := range sub.filters {
-				if fi.chainId == v.EmitterChain && fi.emitterAddr == v.EmitterAddress {
-					sub.ch <- message{vaaBytes: vaaBytes}
-				}
+		if v == nil {
+			v, err = vaa.Unmarshal(vaaBytes)
+			if err != nil {
+				return err
 			}
 		}
+
+		for _, fi := range sub.filters {
+			if fi.chainId == v.EmitterChain && fi.emitterAddr == v.EmitterAddress {
+				if !verified {
+					verified = true
+					v, err = s.verifyVAA(v, vaaBytes)
+					if err != nil {
+						return err
+					}
+				}
+				sub.ch <- message{vaaBytes: vaaBytes}
+			}
+		}
+
 	}
 
 	return nil
 }
 
+func (s *spyServer) verifyVAA(v *vaa.VAA, vaaBytes []byte) (*vaa.VAA, error) {
+	if s.vaaVerifier == nil {
+		panic("verifier is nil")
+	}
+
+	if v == nil {
+		var err error
+		v, err = vaa.Unmarshal(vaaBytes)
+		if err != nil {
+			return v, fmt.Errorf(`failed to unmarshal VAA: %w`, err)
+		}
+	}
+
+	valid, err := s.vaaVerifier.VerifySignatures(v)
+	if err != nil {
+		return v, fmt.Errorf(`failed to verify VAA: %w`, err)
+	}
+
+	if !valid {
+		return v, errors.New(`invalid VAA signature`)
+	}
+
+	return v, nil
+}
+
 func (s *spyServer) SubscribeSignedVAA(req *spyv1.SubscribeSignedVAARequest, resp spyv1.SpyRPCService_SubscribeSignedVAAServer) error {
-	var fi []filter
+	var fi []filterSignedVaa
 	if req.Filters != nil {
 		for _, f := range req.Filters {
 			switch t := f.Filter.(type) {
 			case *spyv1.FilterEntry_EmitterFilter:
-				addr, err := decodeEmitterAddr(t.EmitterFilter.EmitterAddress)
+				addr, err := vaa.StringToAddress(t.EmitterFilter.EmitterAddress)
 				if err != nil {
 					return status.Error(codes.InvalidArgument, fmt.Sprintf("failed to decode emitter address: %v", err))
 				}
-				fi = append(fi, filter{
+				fi = append(fi, filterSignedVaa{
 					chainId:     vaa.ChainID(t.EmitterFilter.ChainId),
 					emitterAddr: addr,
 				})
@@ -156,19 +199,27 @@ func (s *spyServer) SubscribeSignedVAA(req *spyv1.SubscribeSignedVAARequest, res
 		}
 	}
 
-	s.subsMu.Lock()
+	s.subsSignedVaaMu.Lock()
 	id := subscriptionId()
-	sub := &subscription{
+	sub := &subscriptionSignedVaa{
 		ch:      make(chan message, 1),
 		filters: fi,
 	}
-	s.subs[id] = sub
-	s.subsMu.Unlock()
+	s.subsSignedVaa[id] = sub
+	s.subsSignedVaaMu.Unlock()
 
 	defer func() {
-		s.subsMu.Lock()
-		defer s.subsMu.Unlock()
-		delete(s.subs, id)
+		for {
+			// The channel sender locks the subscription mutex before sending to the channel.
+			// If the channel is full, then the sender will block and we'll never be able to lock the mutex (resulting in deadlock).
+			// So we empty the channel before trying acquire the lock.
+			_ = DoWithTimeout(func() error { <-sub.ch; return nil }, time.Millisecond)
+			if s.subsSignedVaaMu.TryLock() {
+				delete(s.subsSignedVaa, id)
+				s.subsSignedVaaMu.Unlock()
+				return
+			}
+		}
 	}()
 
 	for {
@@ -176,9 +227,9 @@ func (s *spyServer) SubscribeSignedVAA(req *spyv1.SubscribeSignedVAARequest, res
 		case <-resp.Context().Done():
 			return resp.Context().Err()
 		case msg := <-sub.ch:
-			if err := resp.Send(&spyv1.SubscribeSignedVAAResponse{
-				VaaBytes: msg.vaaBytes,
-			}); err != nil {
+			if err := DoWithTimeout(func() error {
+				return resp.Send(&spyv1.SubscribeSignedVAAResponse{VaaBytes: msg.vaaBytes})
+			}, *sendTimeout); err != nil {
 				return err
 			}
 		}
@@ -187,8 +238,28 @@ func (s *spyServer) SubscribeSignedVAA(req *spyv1.SubscribeSignedVAARequest, res
 
 func newSpyServer(logger *zap.Logger) *spyServer {
 	return &spyServer{
-		logger: logger.Named("spyserver"),
-		subs:   make(map[string]*subscription),
+		logger:        logger.Named("spyserver"),
+		subsSignedVaa: make(map[string]*subscriptionSignedVaa),
+	}
+}
+
+// DoWithTimeout runs f and returns its error. If the deadline d elapses first,
+// it returns a grpc DeadlineExceeded error instead.
+func DoWithTimeout(f func() error, d time.Duration) error {
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- f()
+		close(errChan)
+	}()
+	t := time.NewTimer(d)
+	select {
+	case <-t.C:
+		return status.Errorf(codes.DeadlineExceeded, "too slow")
+	case err := <-errChan:
+		if !t.Stop() {
+			<-t.C
+		}
+		return err
 	}
 }
 
@@ -198,9 +269,9 @@ func spyServerRunnable(s *spyServer, logger *zap.Logger, listenAddr string) (sup
 		return nil, nil, fmt.Errorf("failed to listen: %w", err)
 	}
 
-	logger.Info("publicrpc server listening", zap.String("addr", l.Addr().String()))
+	logger.Info("spy server listening", zap.String("addr", l.Addr().String()))
 
-	grpcServer := common.NewInstrumentedGRPCServer(logger)
+	grpcServer := common.NewInstrumentedGRPCServer(logger, common.GrpcLogDetailFull)
 	spyv1.RegisterSpyRPCServiceServer(grpcServer, s)
 
 	return supervisor.GRPCServer(grpcServer, l, false), grpcServer, nil
@@ -219,6 +290,30 @@ func runSpy(cmd *cobra.Command, args []string) {
 
 	ipfslog.SetAllLoggers(lvl)
 
+	if *envStr != "" {
+		// If they specify --env then use the defaults for the network parameters and don't allow them to override them.
+		if *p2pNetworkID != "" || *p2pBootstrap != "" {
+			logger.Fatal(`If "--env" is specified, "--network" and "--bootstrap" may not be specified`)
+		}
+		env, err := common.ParseEnvironment(*envStr)
+		if err != nil || (env != common.MainNet && env != common.TestNet) {
+			logger.Fatal(`Invalid value for "--env", should be "mainnet" or "testnet"`)
+		}
+		*p2pNetworkID = p2p.GetNetworkId(env)
+		*p2pBootstrap, err = p2p.GetBootstrapPeers(env)
+		if err != nil {
+			logger.Fatal("failed to determine p2p bootstrap peers", zap.String("env", string(env)), zap.Error(err))
+		}
+	} else {
+		// If they don't specify --env, then --network and --bootstrap are required.
+		if *p2pNetworkID == "" {
+			logger.Fatal(`If "--env" is not specified, "--network" must be specified`)
+		}
+		if *p2pBootstrap == "" {
+			logger.Fatal(`If "--env" is not specified, "--bootstrap" must be specified`)
+		}
+	}
+
 	// Status server
 	if *statusAddr != "" {
 		router := mux.NewRouter()
@@ -227,7 +322,7 @@ func runSpy(cmd *cobra.Command, args []string) {
 
 		go func() {
 			logger.Info("status server listening on [::]:6060")
-			logger.Error("status server crashed", zap.Error(http.ListenAndServe(*statusAddr, router)))
+			logger.Error("status server crashed", zap.Error(http.ListenAndServe(*statusAddr, router))) // #nosec G114 local status server not vulnerable to DoS attack
 		}()
 	}
 
@@ -244,17 +339,11 @@ func runSpy(cmd *cobra.Command, args []string) {
 	rootCtx, rootCtxCancel = context.WithCancel(context.Background())
 	defer rootCtxCancel()
 
-	// Outbound gossip message queue
-	sendC := make(chan []byte)
-
-	// Inbound observations
-	obsvC := make(chan *gossipv1.SignedObservation, 50)
-
 	// Inbound signed VAAs
-	signedInC := make(chan *gossipv1.SignedVAAWithQuorum, 50)
+	signedInC := make(chan *gossipv1.SignedVAAWithQuorum, 1024)
 
 	// Guardian set state managed by processor
-	gst := common.NewGuardianSetState()
+	gst := common.NewGuardianSetState(nil)
 
 	// RPC server
 	s := newSpyServer(logger)
@@ -263,16 +352,16 @@ func runSpy(cmd *cobra.Command, args []string) {
 		logger.Fatal("failed to start RPC server", zap.Error(err))
 	}
 
-	// Ignore observations
-	go func() {
-		for {
-			select {
-			case <-rootCtx.Done():
-				return
-			case <-obsvC:
-			}
+	// VAA verifier (optional)
+	if *ethRPC != "" {
+		if *ethContract == "" {
+			logger.Fatal(`If "--ethRPC" is specified, "--ethContract" must also be specified`)
 		}
-	}()
+		s.vaaVerifier = NewVaaVerifier(logger, *ethRPC, *ethContract)
+		if err := s.vaaVerifier.GetInitialGuardianSet(); err != nil {
+			logger.Fatal(`Failed to read initial guardian set for VAA verification`, zap.Error(err))
+		}
+	}
 
 	// Log signed VAAs
 	go func() {
@@ -283,8 +372,8 @@ func runSpy(cmd *cobra.Command, args []string) {
 			case v := <-signedInC:
 				logger.Info("Received signed VAA",
 					zap.Any("vaa", v.Vaa))
-				if err := s.Publish(v.Vaa); err != nil {
-					logger.Error("failed to publish signed VAA", zap.Error(err))
+				if err := s.PublishSignedVAA(v.Vaa); err != nil {
+					logger.Error("failed to publish signed VAA", zap.Error(err), zap.Any("vaa", v.Vaa))
 				}
 			}
 		}
@@ -299,7 +388,25 @@ func runSpy(cmd *cobra.Command, args []string) {
 
 	// Run supervisor.
 	supervisor.New(rootCtx, logger, func(ctx context.Context) error {
-		if err := supervisor.Run(ctx, "p2p", p2p.Run(obsvC, nil, nil, sendC, signedInC, priv, nil, gst, *p2pPort, *p2pNetworkID, *p2pBootstrap, "", false, rootCtxCancel, nil)); err != nil {
+		components := p2p.DefaultComponents()
+		components.Port = *p2pPort
+		params, err := p2p.NewRunParams(
+			*p2pBootstrap,
+			*p2pNetworkID,
+			priv,
+			gst,
+			rootCtxCancel,
+			p2p.WithSignedVAAListener(signedInC),
+			p2p.WithComponents(components),
+			p2p.WithProtectedPeers(protectedPeers),
+		)
+		if err != nil {
+			return err
+		}
+
+		if err := supervisor.Run(ctx,
+			"p2p",
+			p2p.Run(params)); err != nil {
 			return err
 		}
 

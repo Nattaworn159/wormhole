@@ -1,6 +1,9 @@
-# Wormhole SDK
+# Wormhole Legacy SDK (Deprecated)
 
-> Note: This is a pre-alpha release and in active development. Function names and signatures are subject to change.
+> [!CAUTION]
+> **This SDK is Deprecated and Unsupported**
+>
+> Please use the new Wormhole TypeScript SDK instead: [`@wormhole-foundation/sdk`](https://github.com/wormhole-foundation/wormhole-sdk-ts)
 
 ## What is Wormhole?
 
@@ -49,7 +52,7 @@ It is important to note that Wormhole wrapped tokens are distinct from and incom
 
 ## Examples
 
-The integration tests in the [source code](https://github.com/certusone/wormhole/blob/dev.v2/sdk/js/src/token_bridge/__tests__/integration.ts) have many full-path examples, while the [example Token Bridge UI](https://github.com/certusone/wormhole/tree/dev.v2/bridge_ui) demonstrates how to integrate it.
+The integration tests in the [source code](https://github.com/wormhole-foundation/wormhole/blob/main/sdk/js/src/token_bridge/__tests__/integration.ts) have many full-path examples, while the [example Token Bridge UI](https://github.com/wormhole-foundation/wormhole/tree/main/bridge_ui) demonstrates how to integrate it.
 
 ### Attest
 

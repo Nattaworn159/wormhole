@@ -5,6 +5,7 @@ package spy.v1;
 option go_package = "github.com/certusone/wormhole/node/pkg/proto/spy/v1;spyv1";
 
 import "google/api/annotations.proto";
+import "gossip/v1/gossip.proto";
 import "publicrpc/v1/publicrpc.proto";
 
 // SpyRPCService exposes a gossip introspection service, allowing sniffing of gossip messages.
@@ -26,9 +27,28 @@ message EmitterFilter {
   string emitter_address = 2;
 }
 
+
+message BatchFilter {
+  // Source chain
+  publicrpc.v1.ChainID chain_id = 1;
+  // Native transaction identifier bytes.
+  bytes tx_id = 2;
+  // Nonce of the messages in the batch.
+  uint32 nonce = 3;
+}
+
+message BatchTransactionFilter {
+  // Source chain
+  publicrpc.v1.ChainID chain_id = 1;
+  // Native transaction identifier bytes.
+  bytes tx_id = 2;
+}
+
 message FilterEntry {
   oneof filter {
     EmitterFilter emitter_filter = 1;
+    BatchFilter batch_filter = 2;
+    BatchTransactionFilter batch_transaction_filter = 3;
   }
 }
 

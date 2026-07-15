@@ -2,9 +2,9 @@ import { formatUnits, parseUnits } from "@ethersproject/units";
 import { NodeHttpTransport } from "@improbable-eng/grpc-web-node-http-transport";
 import { describe, expect, jest, test } from "@jest/globals";
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  Token,
   TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddress,
 } from "@solana/spl-token";
 import {
   Connection,
@@ -15,27 +15,24 @@ import {
 } from "@solana/web3.js";
 import { ethers } from "ethers";
 import {
-  approveEth,
-  attestFromEth,
   CHAIN_ID_ETH,
   CHAIN_ID_SOLANA,
   CONTRACTS,
+  approveEth,
+  attestFromEth,
   createWrappedOnSolana,
   getEmitterAddressEth,
   getForeignAssetSolana,
   getIsTransferCompletedSolana,
-  hexToUint8Array,
-  nativeToHexString,
   parseSequenceFromLogEth,
   postVaaSolana,
   redeemOnSolana,
-  TokenImplementation__factory,
   transferFromEth,
   tryNativeToUint8Array,
 } from "../..";
+import { TokenImplementation__factory } from "../../ethers-contracts";
 import getSignedVAAWithRetry from "../../rpc/getSignedVAAWithRetry";
-import { postVaaWithRetry } from "../../solana/postVaa";
-import { setDefaultWasm } from "../../solana/wasm";
+import { postVaaWithRetry } from "../../solana/sendAndConfirmPostVaa";
 import {
   ETH_NODE_URL,
   ETH_PRIVATE_KEY,
@@ -43,11 +40,7 @@ import {
   SOLANA_PRIVATE_KEY,
   TEST_ERC20,
   WORMHOLE_RPC_HOSTS,
-} from "./consts";
-
-setDefaultWasm("node");
-
-jest.setTimeout(60000);
+} from "./utils/consts";
 
 async function transferFromEthToSolana(): Promise<string> {
   // create a keypair for Solana
@@ -59,12 +52,10 @@ async function transferFromEthToSolana(): Promise<string> {
       connection,
       CONTRACTS.DEVNET.solana.token_bridge,
       CHAIN_ID_ETH,
-      hexToUint8Array(nativeToHexString(TEST_ERC20, CHAIN_ID_ETH) || "")
+      tryNativeToUint8Array(TEST_ERC20, CHAIN_ID_ETH)
     )) || ""
   );
-  const recipient = await Token.getAssociatedTokenAddress(
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    TOKEN_PROGRAM_ID,
+  const recipient = await getAssociatedTokenAddress(
     solanaMintKey,
     keypair.publicKey
   );
@@ -72,16 +63,14 @@ async function transferFromEthToSolana(): Promise<string> {
   const associatedAddressInfo = await connection.getAccountInfo(recipient);
   if (!associatedAddressInfo) {
     const transaction = new Transaction().add(
-      await Token.createAssociatedTokenAccountInstruction(
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-        TOKEN_PROGRAM_ID,
-        solanaMintKey,
+      await createAssociatedTokenAccountInstruction(
+        keypair.publicKey, // payer
         recipient,
         keypair.publicKey, // owner
-        keypair.publicKey // payer
+        solanaMintKey
       )
     );
-    const { blockhash } = await connection.getRecentBlockhash();
+    const { blockhash } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = keypair.publicKey;
     // sign, send, and confirm transaction
@@ -90,7 +79,7 @@ async function transferFromEthToSolana(): Promise<string> {
     await connection.confirmTransaction(txid);
   }
   // create a signer for Eth
-  const provider = new ethers.providers.WebSocketProvider(ETH_NODE_URL);
+  const provider = new ethers.providers.JsonRpcProvider(ETH_NODE_URL);
   const signer = new ethers.Wallet(ETH_PRIVATE_KEY, provider);
   const amount = parseUnits("1", 18);
   // approve the bridge to spend tokens
@@ -107,16 +96,13 @@ async function transferFromEthToSolana(): Promise<string> {
     TEST_ERC20,
     amount,
     CHAIN_ID_SOLANA,
-    hexToUint8Array(
-      nativeToHexString(recipient.toString(), CHAIN_ID_SOLANA) || ""
-    )
+    tryNativeToUint8Array(recipient.toString(), CHAIN_ID_SOLANA)
   );
   // get the sequence from the logs (needed to fetch the vaa)
   const sequence = await parseSequenceFromLogEth(
     receipt,
     CONTRACTS.DEVNET.ethereum.core
   );
-  provider.destroy();
   return sequence;
 }
 
@@ -125,7 +111,7 @@ describe("Ethereum to Solana and Back", () => {
     (async () => {
       try {
         // create a signer for Eth
-        const provider = new ethers.providers.WebSocketProvider(ETH_NODE_URL);
+        const provider = new ethers.providers.JsonRpcProvider(ETH_NODE_URL);
         const signer = new ethers.Wallet(ETH_PRIVATE_KEY, provider);
         // attest the test token
         const receipt = await attestFromEth(
@@ -141,6 +127,7 @@ describe("Ethereum to Solana and Back", () => {
         const emitterAddress = getEmitterAddressEth(
           CONTRACTS.DEVNET.ethereum.token_bridge
         );
+        await provider.send("anvil_mine", ["0x40"]); // 64 blocks should get the above block to `finalized`
         // poll until the guardian(s) witness and sign the vaa
         const { vaaBytes: signedVAA } = await getSignedVAAWithRetry(
           WORMHOLE_RPC_HOSTS,
@@ -184,7 +171,6 @@ describe("Ethereum to Solana and Back", () => {
         } catch (e) {
           // this could fail because the token is already attested (in an unclean env)
         }
-        provider.destroy();
         done();
       } catch (e) {
         console.error(e);
@@ -220,9 +206,7 @@ describe("Ethereum to Solana and Back", () => {
           tryNativeToUint8Array(TEST_ERC20, CHAIN_ID_ETH)
         );
         const solanaMintKey = new PublicKey(SolanaForeignAsset || "");
-        const recipient = await Token.getAssociatedTokenAddress(
-          ASSOCIATED_TOKEN_PROGRAM_ID,
-          TOKEN_PROGRAM_ID,
+        const recipient = await getAssociatedTokenAddress(
           solanaMintKey,
           keypair.publicKey
         );
@@ -232,16 +216,14 @@ describe("Ethereum to Solana and Back", () => {
         );
         if (!associatedAddressInfo) {
           const transaction = new Transaction().add(
-            await Token.createAssociatedTokenAccountInstruction(
-              ASSOCIATED_TOKEN_PROGRAM_ID,
-              TOKEN_PROGRAM_ID,
-              solanaMintKey,
+            await createAssociatedTokenAccountInstruction(
+              keypair.publicKey, // payer
               recipient,
               keypair.publicKey, // owner
-              keypair.publicKey // payer
+              solanaMintKey
             )
           );
-          const { blockhash } = await connection.getRecentBlockhash();
+          const { blockhash } = await connection.getLatestBlockhash();
           transaction.recentBlockhash = blockhash;
           transaction.feePayer = keypair.publicKey;
           // sign, send, and confirm transaction
@@ -252,7 +234,7 @@ describe("Ethereum to Solana and Back", () => {
           await connection.confirmTransaction(txid);
         }
         // create a signer for Eth
-        const provider = new ethers.providers.WebSocketProvider(ETH_NODE_URL);
+        const provider = new ethers.providers.JsonRpcProvider(ETH_NODE_URL);
         const signer = new ethers.Wallet(ETH_PRIVATE_KEY, provider);
         const amount = parseUnits("1", DECIMALS);
 
@@ -308,6 +290,7 @@ describe("Ethereum to Solana and Back", () => {
         const emitterAddress = getEmitterAddressEth(
           CONTRACTS.DEVNET.ethereum.token_bridge
         );
+        await provider.send("anvil_mine", ["0x40"]); // 64 blocks should get the above block to `finalized`
         // poll until the guardian(s) witness and sign the vaa
         const { vaaBytes: signedVAA } = await getSignedVAAWithRetry(
           WORMHOLE_RPC_HOSTS,
@@ -387,7 +370,6 @@ describe("Ethereum to Solana and Back", () => {
           }
         }
         expect(finalSolanaBalance - initialSolanaBalance === 1).toBe(true);
-        provider.destroy();
         done();
       } catch (e) {
         console.error(e);
@@ -407,6 +389,8 @@ describe("Ethereum to Solana and Back", () => {
           const emitterAddress = getEmitterAddressEth(
             CONTRACTS.DEVNET.ethereum.token_bridge
           );
+          const provider = new ethers.providers.JsonRpcProvider(ETH_NODE_URL);
+          await provider.send("anvil_mine", ["0x40"]); // 64 blocks should get the above block to `finalized`
           // poll until the guardian(s) witness and sign the vaa
           const { vaaBytes: signedVAA } = await getSignedVAAWithRetry(
             WORMHOLE_RPC_HOSTS,
@@ -480,6 +464,8 @@ describe("Ethereum to Solana and Back", () => {
           const emitterAddress = getEmitterAddressEth(
             CONTRACTS.DEVNET.ethereum.token_bridge
           );
+          const provider = new ethers.providers.JsonRpcProvider(ETH_NODE_URL);
+          await provider.send("anvil_mine", ["0x40"]); // 64 blocks should get the above block to `finalized`
           // poll until the guardian(s) witness and sign the vaa
           const { vaaBytes: signedVAA } = await getSignedVAAWithRetry(
             WORMHOLE_RPC_HOSTS,

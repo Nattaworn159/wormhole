@@ -8,6 +8,7 @@
 //   - governor-reload - reloads the state of the chain governor from the database.
 //   - governor-drop-pending-vaa [VAA_ID] - removes the specified transfer from the pending list and discards it.
 //   - governor-release-pending-vaa [VAA_ID] - removes the specified transfer from the pending list and publishes it, without regard to the threshold.
+//   - governor-reset-release-timer - resets the release timer for the specified VAA to the configured maximum.
 //
 // The VAA_ID is of the form "2/0000000000000000000000000290fb167208af455bb137780163b7b7a9a10c16/3", which is "emitter chain / emitter address / sequence number".
 
@@ -17,17 +18,17 @@
 //
 // Returns:
 // {"entries":[
-//	{"chainId":1,"remainingAvailableNotional":"96217","notionalLimit":"100000"},
-//  {"chainId":2,"remainingAvailableNotional":"100000","notionalLimit":"100000"},
-//  {"chainId":5,"remainingAvailableNotional":"275000","notionalLimit":"275000"}
+//	{"chainId":1,"remainingAvailableNotional":"96217","notionalLimit":"100000","bigTransactionSize":"10000"},
+//  {"chainId":2,"remainingAvailableNotional":"100000","notionalLimit":"100000","bigTransactionSize":"10000"},
+//  {"chainId":5,"remainingAvailableNotional":"275000","notionalLimit":"275000","bigTransactionSize":"20000"}
 // ]}
 //
 // Query: http://localhost:7071/v1/governor/enqueued_vaas
 //
 // Returns:
 // {"entries":[
-// 	{"emitterChain":1, "emitterAddress":"c69a1b1a65dd336bf1df6a77afb501fc25db7fc0938cb08595a9ef473265cb4f", "sequence":"1"},
-// 	{"emitterChain":1, "emitterAddress":"c69a1b1a65dd336bf1df6a77afb501fc25db7fc0938cb08595a9ef473265cb4f", "sequence":"2"}
+// 	{"emitterChain":1,"emitterAddress":"c69a1b1a65dd336bf1df6a77afb501fc25db7fc0938cb08595a9ef473265cb4f","sequence":"3","releaseTime":1662057609,"notionalValue":"69","txHash":"0xccdb6891688b551c1a182292f93e5a9e9e9671bc902116162f044041cafbdcaf"},
+// 	{"emitterChain":1,"emitterAddress":"c69a1b1a65dd336bf1df6a77afb501fc25db7fc0938cb08595a9ef473265cb4f","sequence":"4","releaseTime":1662057673,"notionalValue":"34","txHash":"0x95641b9b3f9cfdd82ca97f251b9249183d838a096ae3feea60032a22726d6f42"}
 // ]}
 //
 // Query: http://localhost:7071/v1/governor/is_vaa_enqueued/1/c69a1b1a65dd336bf1df6a77afb501fc25db7fc0938cb08595a9ef473265cb4f/3
@@ -59,43 +60,65 @@
 // - This is a single metric that indicates the total number of enqueued VAAs across all chains. This provides a quick check if
 //   anything is currently being limited.
 
+// The chain governor also publishes the following messages to the gossip network
+//
+// SignedChainGovernorConfig
+// - Published once every five minutes.
+// - Contains a list of configured chains, along with the daily limit, big transaction size and current price.
+//
+// - SignedChainGovernorStatus
+//   - Published once a minute.
+//   - Contains a list of configured chains along with their remaining available notional value, the number of enqueued VAAs
+//     and information on zero or more enqueued VAAs.
+//   - Only the first 20 enqueued VAAs are include, to constrain the message size.
+
 package governor
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"time"
 
-	"github.com/certusone/wormhole/node/pkg/db"
+	"github.com/certusone/wormhole/node/pkg/guardiansigner"
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	publicrpcv1 "github.com/certusone/wormhole/node/pkg/proto/publicrpc/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"go.uber.org/zap"
+
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"google.golang.org/protobuf/proto"
 )
 
 // Admin command to display status to the log.
-func (gov *ChainGovernor) Status() string {
+func (gov *ChainGovernor) Status() (resp string) {
 	gov.mutex.Lock()
 	defer gov.mutex.Unlock()
 
 	startTime := time.Now().Add(-time.Minute * time.Duration(gov.dayLengthInMinutes))
-	var resp string
+
 	for _, ce := range gov.chains {
-		valueTrans := sumValue(ce.transfers, startTime)
-		s1 := fmt.Sprintf("chain: %v, dailyLimit: %v, total: %v, numPending: %v", ce.emitterChainId, ce.dailyLimit, valueTrans, len(ce.pending))
-		s2 := fmt.Sprintf("cgov: %v", s1)
+		netValue, _, _, err := sumValue(ce.transfers, startTime)
+		if err != nil {
+			// We don't want to actually return an error or otherwise stop
+			// execution in this case. Instead of propagating the error here, print the contents of the
+			// error message.
+			return fmt.Sprintf("chain: %v, dailyLimit: OVERFLOW. error: %s", ce.emitterChainId, err)
+		}
+		s1 := fmt.Sprintf("chain: %v, dailyLimit: %v, total: %v, numPending: %v", ce.emitterChainId, ce.dailyLimit, netValue, len(ce.pending))
 		resp += s1 + "\n"
-		gov.logger.Info(s2)
+		gov.logger.Info(s1)
 		if len(ce.pending) != 0 {
 			for idx, pe := range ce.pending {
 				value, _ := computeValue(pe.amount, pe.token)
-				s1 := fmt.Sprintf("chain: %v, pending[%v], value: %v, vaa: %v, time: %v", ce.emitterChainId, idx, value,
-					pe.msg.MessageIDString(), pe.timeStamp.String())
-				s2 := fmt.Sprintf("cgov: %v", s1)
-				gov.logger.Info(s2)
+				s1 := fmt.Sprintf("chain: %v, pending[%v], value: %v, vaa: %v, timeStamp: %v, releaseTime: %v", ce.emitterChainId, idx, value,
+					pe.dbData.Msg.MessageIDString(), pe.dbData.Msg.Timestamp.String(), pe.dbData.ReleaseTime.String())
+				gov.logger.Info(s1)
 				resp += "   " + s1 + "\n"
 			}
 		}
@@ -119,7 +142,7 @@ func (gov *ChainGovernor) Reload() (string, error) {
 	}
 
 	if err := gov.loadFromDBAlreadyLocked(); err != nil {
-		gov.logger.Error("cgov: failed to load from the database", zap.Error(err))
+		gov.logger.Error("failed to load from the database", zap.Error(err))
 		return "", err
 	}
 
@@ -133,16 +156,16 @@ func (gov *ChainGovernor) DropPendingVAA(vaaId string) (string, error) {
 
 	for _, ce := range gov.chains {
 		for idx, pe := range ce.pending {
-			msgId := pe.msg.MessageIDString()
+			msgId := pe.dbData.Msg.MessageIDString()
 			if msgId == vaaId {
 				value, _ := computeValue(pe.amount, pe.token)
-				gov.logger.Info("cgov: dropping pending vaa",
+				gov.logger.Info("dropping pending vaa",
 					zap.String("msgId", msgId),
 					zap.Uint64("value", value),
-					zap.Stringer("timeStamp", pe.timeStamp),
+					zap.Stringer("timeStamp", pe.dbData.Msg.Timestamp),
 				)
 
-				if err := gov.db.DeletePendingMsg(pe.msg); err != nil {
+				if err := gov.db.DeletePendingMsg(&pe.dbData); err != nil {
 					return "", err
 				}
 
@@ -163,21 +186,21 @@ func (gov *ChainGovernor) ReleasePendingVAA(vaaId string) (string, error) {
 
 	for _, ce := range gov.chains {
 		for idx, pe := range ce.pending {
-			msgId := pe.msg.MessageIDString()
+			msgId := pe.dbData.Msg.MessageIDString()
 			if msgId == vaaId {
 				value, _ := computeValue(pe.amount, pe.token)
-				gov.logger.Info("cgov: releasing pending vaa, should be published soon",
+				gov.logger.Info("releasing pending vaa, should be published soon",
 					zap.String("msgId", msgId),
 					zap.Uint64("value", value),
-					zap.Stringer("timeStamp", pe.timeStamp),
+					zap.Stringer("timeStamp", pe.dbData.Msg.Timestamp),
 				)
 
-				gov.msgsToPublish = append(gov.msgsToPublish, pe.msg)
+				gov.msgsToPublish = append(gov.msgsToPublish, &pe.dbData.Msg)
 
 				// We delete the pending message from the database, but we don't add it to the transfers
 				// because released messages do not apply to the limit.
 
-				if err := gov.db.DeletePendingMsg(pe.msg); err != nil {
+				if err := gov.db.DeletePendingMsg(&pe.dbData); err != nil {
 					return "", err
 				}
 
@@ -191,43 +214,143 @@ func (gov *ChainGovernor) ReleasePendingVAA(vaaId string) (string, error) {
 	return "", fmt.Errorf("vaa not found in the pending list")
 }
 
-func sumValue(transfers []db.Transfer, startTime time.Time) uint64 {
-	if len(transfers) == 0 {
-		return 0
-	}
-
-	var sum uint64
-
-	for _, t := range transfers {
-		if !t.Timestamp.Before(startTime) {
-			sum += t.Value
-		}
-	}
-
-	return sum
+// Admin command to reset the release timer for a pending VAA, extending it to the configured limit.
+func (gov *ChainGovernor) ResetReleaseTimer(vaaId string, numDays uint32) (string, error) {
+	return gov.resetReleaseTimerForTime(vaaId, time.Now(), numDays)
 }
 
-// REST query to get the current available notional value per chain.
-func (gov *ChainGovernor) GetAvailableNotionalByChain() []*publicrpcv1.GovernorGetAvailableNotionalByChainResponse_Entry {
+func (gov *ChainGovernor) resetReleaseTimerForTime(vaaId string, now time.Time, numDays uint32) (string, error) {
 	gov.mutex.Lock()
 	defer gov.mutex.Unlock()
 
-	resp := make([]*publicrpcv1.GovernorGetAvailableNotionalByChainResponse_Entry, 0)
+	for _, ce := range gov.chains {
+		for _, pe := range ce.pending {
+			msgId := pe.dbData.Msg.MessageIDString()
+			if msgId == vaaId {
+				pe.dbData.ReleaseTime = now.Add(time.Duration(numDays) * time.Hour * 24)
+				gov.logger.Info("updating the release time due to admin command",
+					zap.String("msgId", msgId),
+					zap.Stringer("timeStamp", pe.dbData.Msg.Timestamp),
+					zap.Stringer("newReleaseTime", pe.dbData.ReleaseTime),
+				)
+
+				if err := gov.db.StorePendingMsg(&pe.dbData); err != nil {
+					gov.logger.Error("failed to store updated pending vaa", zap.String("msgID", msgId), zap.Error(err))
+					return "", err
+				}
+
+				str := fmt.Sprintf("release time on pending vaa \"%v\" has been updated to %v", msgId, pe.dbData.ReleaseTime.String())
+				return str, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("vaa not found in the pending list")
+
+}
+
+// sumValue sums the value of all `transfers`, returning separate fields for:
+// - the net sum of all outgoing small tranasfers minus flow cancel sum
+// - the sum of all outgoing small tranasfers
+// - the sum of all incoming flow-cancelling transfers
+// NOTE these sums exclude "big transfers" as they are always queued for 24h and are never added to the chain entry's 'transfers' field.
+// Returns an error if the sum of all transfers would overflow the bounds of Int64. In this case, the function
+// returns a value of 0.
+func sumValue(transfers []transfer, startTime time.Time) (netNotional int64, smallTxOutgoingNotional uint64, flowCancelNotional uint64, err error) {
+	if len(transfers) == 0 {
+		return 0, 0, 0, nil
+	}
+
+	// Sum of all outgoing small tranasfers minus incoming flow cancel transfers. Big transfers are excluded
+	netNotional = int64(0)
+	smallTxOutgoingNotional = uint64(0)
+	flowCancelNotional = uint64(0)
+
+	for _, t := range transfers {
+		if t.dbTransfer.Timestamp.Before(startTime) {
+			continue
+		}
+		netNotional, err = CheckedAddInt64(netNotional, t.value)
+		if err != nil {
+			// We have to stop and return an error here (rather than saturate, for example). The
+			// transfers are not sorted by value so we can't make any guarantee on the final value
+			// if we hit the upper or lower bound. We don't expect this to happen in any case.
+			return 0, 0, 0, err
+		}
+		if t.value < 0 {
+			// If a transfer is negative then it is an incoming, flow-cancelling transfer.
+			// We can use the dbTransfer.Value for calculating the sum because it is the unsigned version
+			// of t.Value
+			flowCancelNotional += t.dbTransfer.Value
+		} else {
+			smallTxOutgoingNotional += t.dbTransfer.Value
+		}
+	}
+
+	return netNotional, smallTxOutgoingNotional, flowCancelNotional, nil
+}
+
+// REST query to get the current available notional value per chain. This is defined as the sum of all transfers
+// subtracted from the chains's dailyLimit.
+// The available notional limit by chain represents the remaining capacity of a chain. As a result, it should not be
+// a negative number: we don't want to represent that there is "negative value" available.
+func (gov *ChainGovernor) GetAvailableNotionalByChain() (resp []*publicrpcv1.GovernorGetAvailableNotionalByChainResponse_Entry) {
+	gov.mutex.Lock()
+	defer gov.mutex.Unlock()
 
 	startTime := time.Now().Add(-time.Minute * time.Duration(gov.dayLengthInMinutes))
-	for _, ce := range gov.chains {
-		value := sumValue(ce.transfers, startTime)
-		if value >= ce.dailyLimit {
-			value = 0
-		} else {
-			value = ce.dailyLimit - value
+
+	// Iterate deterministically by accessing keys from this slice instead of the chainEntry map directly
+	for _, chainId := range gov.chainIds {
+		ce := gov.chains[chainId]
+		netUsage, _, incoming, err := sumValue(ce.transfers, startTime)
+		if err != nil {
+			// Report 0 available notional if we can't calculate the current usage
+			gov.logger.Error("GetAvailableNotionalByChain: failed to compute sum of transfers for chain entry",
+				zap.String("chainID", chainId.String()),
+				zap.Error(err))
+			resp = append(resp, &publicrpcv1.GovernorGetAvailableNotionalByChainResponse_Entry{
+				ChainId:                    uint32(ce.emitterChainId),
+				RemainingAvailableNotional: 0,
+				NotionalLimit:              ce.dailyLimit,
+				BigTransactionSize:         ce.bigTransactionSize,
+			})
+			continue
+		}
+
+		remaining := gov.availableNotionalValue(chainId, netUsage)
+
+		if !gov.flowCancelEnabled {
+			// When flow cancel is disabled, we expect that both the netUsage and remaining notional should be
+			// within the range of [0, dailyLimit]. Flow cancel allows flexibility here. netUsage may be
+			// negative if there is a lot of incoming flow; conversely, it may exceed dailyLimit if incoming
+			// flow added space, allowed additional transfers through, and then expired after 24h.
+			// Note that if flow cancel is enabled and then later disabled, netUsage can exceed dailyLimit
+			// for 24h as old transfers will be loaded from the database into the Governor, but the flow
+			// cancel transfers will not. The value should return to the normal range after 24h has elapsed
+			// since the old transfers were sent.
+			if netUsage < 0 || incoming != 0 {
+				gov.logger.Warn("GetAvailableNotionalByChain: net value for chain is negative even though flow cancel is disabled",
+					zap.String("chainID", chainId.String()),
+					zap.Uint64("dailyLimit", ce.dailyLimit),
+					zap.Int64("netUsage", netUsage),
+					zap.Error(err))
+			} else if uint64(netUsage) > ce.dailyLimit {
+				gov.logger.Warn("GetAvailableNotionalByChain: net value for chain exceeds daily limit even though flow cancel is disabled",
+					zap.String("chainID", chainId.String()),
+					zap.Uint64("dailyLimit", ce.dailyLimit),
+					zap.Error(err))
+			}
+
 		}
 
 		resp = append(resp, &publicrpcv1.GovernorGetAvailableNotionalByChainResponse_Entry{
 			ChainId:                    uint32(ce.emitterChainId),
-			RemainingAvailableNotional: value,
+			RemainingAvailableNotional: remaining,
 			NotionalLimit:              ce.dailyLimit,
+			BigTransactionSize:         ce.bigTransactionSize,
 		})
+
 	}
 
 	sort.SliceStable(resp, func(i, j int) bool {
@@ -246,10 +369,19 @@ func (gov *ChainGovernor) GetEnqueuedVAAs() []*publicrpcv1.GovernorGetEnqueuedVA
 
 	for _, ce := range gov.chains {
 		for _, pe := range ce.pending {
+			value, err := computeValue(pe.amount, pe.token)
+			if err != nil {
+				gov.logger.Error("failed to compute value of pending transfer", zap.String("msgID", pe.dbData.Msg.MessageIDString()), zap.Error(err))
+				value = 0
+			}
+
 			resp = append(resp, &publicrpcv1.GovernorGetEnqueuedVAAsResponse_Entry{
-				EmitterChain:   uint32(pe.msg.EmitterChain),
-				EmitterAddress: pe.msg.EmitterAddress.String(),
-				Sequence:       pe.msg.Sequence,
+				EmitterChain:   uint32(pe.dbData.Msg.EmitterChain),
+				EmitterAddress: pe.dbData.Msg.EmitterAddress.String(),
+				Sequence:       pe.dbData.Msg.Sequence,
+				ReleaseTime:    uint32(pe.dbData.ReleaseTime.Unix()),
+				NotionalValue:  value,
+				TxHash:         pe.dbData.Msg.TxIDString(),
 			})
 		}
 	}
@@ -257,10 +389,14 @@ func (gov *ChainGovernor) GetEnqueuedVAAs() []*publicrpcv1.GovernorGetEnqueuedVA
 	return resp
 }
 
-// REST query to get the list of enqueued VAAs.
+// REST query to see if a VAA is enqueued.
 func (gov *ChainGovernor) IsVAAEnqueued(msgId *publicrpcv1.MessageID) (bool, error) {
 	gov.mutex.Lock()
 	defer gov.mutex.Unlock()
+
+	if msgId == nil {
+		return false, fmt.Errorf("no message ID specified")
+	}
 
 	emitterChain := vaa.ChainID(msgId.EmitterChain)
 
@@ -271,13 +407,32 @@ func (gov *ChainGovernor) IsVAAEnqueued(msgId *publicrpcv1.MessageID) (bool, err
 
 	for _, ce := range gov.chains {
 		for _, pe := range ce.pending {
-			if pe.msg.EmitterChain == emitterChain && pe.msg.EmitterAddress == emitterAddress && pe.msg.Sequence == msgId.Sequence {
+			if pe.dbData.Msg.EmitterChain == emitterChain && pe.dbData.Msg.EmitterAddress == emitterAddress && pe.dbData.Msg.Sequence == msgId.Sequence {
 				return true, nil
 			}
 		}
 	}
 
 	return false, nil
+}
+
+// availableNotionalValue calculates the available notional USD value for a chain entry based on the net value
+// of the chain.
+func (gov *ChainGovernor) availableNotionalValue(id vaa.ChainID, netUsage int64) uint64 {
+	remaining := uint64(0)
+	ce := gov.chains[id]
+
+	// Handle negative case here so we can safely cast to uint64 below
+	if netUsage < 0 {
+		// The full capacity is available for the chain.
+		remaining = ce.dailyLimit
+	} else if uint64(netUsage) > ce.dailyLimit {
+		remaining = 0
+	} else {
+		remaining = ce.dailyLimit - uint64(netUsage)
+	}
+
+	return remaining
 }
 
 // REST query to get the list of tokens being monitored by the governor.
@@ -333,7 +488,7 @@ var (
 		})
 )
 
-func (gov *ChainGovernor) CollectMetrics(hb *gossipv1.Heartbeat) {
+func (gov *ChainGovernor) CollectMetrics(ctx context.Context, hb *gossipv1.Heartbeat, sendC chan<- []byte, guardianSigner guardiansigner.GuardianSigner, ourAddr ethCommon.Address) {
 	gov.mutex.Lock()
 	defer gov.mutex.Unlock()
 
@@ -356,16 +511,21 @@ func (gov *ChainGovernor) CollectMetrics(hb *gossipv1.Heartbeat) {
 
 		if exists {
 			enabled = "1"
-			value := sumValue(ce.transfers, startTime)
-			if value >= ce.dailyLimit {
-				value = 0
+			netUsage, _, _, err := sumValue(ce.transfers, startTime)
+
+			remaining := uint64(0)
+			if err != nil {
+				// Error can occur if the sum overflows. Return 0 in this case rather than returning an
+				// error.
+				gov.logger.Error("CollectMetrics: failed to compute sum of transfers for chain entry", zap.String("chain", chain.String()), zap.Error(err))
+				remaining = 0
 			} else {
-				value = ce.dailyLimit - value
+				remaining = gov.availableNotionalValue(chain, netUsage)
 			}
 
 			pending := len(ce.pending)
 			totalNotional = fmt.Sprint(ce.dailyLimit)
-			available = float64(value)
+			available = float64(remaining)
 			numPending = float64(pending)
 			totalPending += pending
 		}
@@ -376,14 +536,172 @@ func (gov *ChainGovernor) CollectMetrics(hb *gossipv1.Heartbeat) {
 			chain.String(), // chain_name
 			enabled,        // enabled
 			totalNotional,  // total_notional
-		).Set(float64(available))
+		).Set(available)
 
 		metricEnqueuedVAAs.WithLabelValues(
 			chainId,        // chain_id
 			chain.String(), // chain_name
 			enabled,        // enabled
-		).Set(float64(numPending))
+		).Set(numPending)
 	}
 
 	metricTotalEnqueuedVAAs.Set(float64(totalPending))
+
+	if startTime.After(gov.nextConfigPublishTime) {
+		gov.publishConfig(ctx, hb, sendC, guardianSigner, ourAddr)
+		gov.nextConfigPublishTime = startTime.Add(time.Minute * time.Duration(5))
+	}
+
+	if startTime.After(gov.nextStatusPublishTime) {
+		gov.publishStatus(ctx, hb, sendC, startTime, guardianSigner, ourAddr)
+		gov.nextStatusPublishTime = startTime.Add(time.Minute)
+	}
+}
+
+var governorMessagePrefixConfig = []byte("governor_config_000000000000000000|")
+var governorMessagePrefixStatus = []byte("governor_status_000000000000000000|")
+
+func (gov *ChainGovernor) publishConfig(ctx context.Context, hb *gossipv1.Heartbeat, sendC chan<- []byte, guardianSigner guardiansigner.GuardianSigner, ourAddr ethCommon.Address) {
+	chains := make([]*gossipv1.ChainGovernorConfig_Chain, 0)
+	// Iterate deterministically by accessing keys from this slice instead of the chainEntry map directly
+	for _, cid := range gov.chainIds {
+		ce := gov.chains[cid]
+		chains = append(chains, &gossipv1.ChainGovernorConfig_Chain{
+			ChainId:            uint32(ce.emitterChainId),
+			NotionalLimit:      ce.dailyLimit,
+			BigTransactionSize: ce.bigTransactionSize,
+		})
+	}
+
+	tokens := make([]*gossipv1.ChainGovernorConfig_Token, 0)
+	for tk, te := range gov.tokens {
+		price, _ := te.price.Float32()
+		tokens = append(tokens, &gossipv1.ChainGovernorConfig_Token{
+			OriginChainId: uint32(tk.chain),
+			OriginAddress: "0x" + tk.addr.String(),
+			Price:         price,
+		})
+	}
+
+	gov.configPublishCounter += 1
+	payload := &gossipv1.ChainGovernorConfig{
+		NodeName:          hb.NodeName,
+		Counter:           gov.configPublishCounter,
+		Timestamp:         hb.Timestamp,
+		Chains:            chains,
+		Tokens:            tokens,
+		FlowCancelEnabled: gov.flowCancelEnabled,
+	}
+
+	b, err := proto.Marshal(payload)
+	if err != nil {
+		gov.logger.Error("failed to marshal config message", zap.Error(err))
+		return
+	}
+
+	digest := ethCrypto.Keccak256Hash(append(governorMessagePrefixConfig, b...))
+
+	sig, err := guardianSigner.Sign(ctx, digest.Bytes())
+	if err != nil {
+		panic(err)
+	}
+
+	msg := gossipv1.GossipMessage{Message: &gossipv1.GossipMessage_SignedChainGovernorConfig{
+		SignedChainGovernorConfig: &gossipv1.SignedChainGovernorConfig{
+			Config:       b,
+			Signature:    sig,
+			GuardianAddr: ourAddr.Bytes(),
+		}}}
+
+	b, err = proto.Marshal(&msg)
+	if err != nil {
+		panic(err)
+	}
+
+	sendC <- b
+}
+
+func (gov *ChainGovernor) publishStatus(ctx context.Context, hb *gossipv1.Heartbeat, sendC chan<- []byte, startTime time.Time, guardianSigner guardiansigner.GuardianSigner, ourAddr ethCommon.Address) {
+	chains := make([]*gossipv1.ChainGovernorStatus_Chain, 0)
+	numEnqueued := 0
+	for chainId, ce := range gov.chains {
+		// The capacity for the chain to emit further messages, denoted as USD value.
+		remaining := uint64(0)
+		netUsage, smallTxNotional, flowCancelNotional, err := sumValue(ce.transfers, startTime)
+
+		if err != nil {
+			gov.logger.Error("publishStatus: failed to compute sum of transfers for chain entry", zap.String("chain", chainId.String()), zap.Error(err))
+		} else {
+			remaining = gov.availableNotionalValue(chainId, netUsage)
+		}
+
+		enqueuedVaas := make([]*gossipv1.ChainGovernorStatus_EnqueuedVAA, 0)
+		for _, pe := range ce.pending {
+			value, err := computeValue(pe.amount, pe.token)
+			if err != nil {
+				gov.logger.Error("failed to compute value of pending transfer", zap.String("msgID", pe.dbData.Msg.MessageIDString()), zap.Error(err))
+				value = 0
+			}
+
+			if numEnqueued < 20 {
+				numEnqueued = numEnqueued + 1
+				enqueuedVaas = append(enqueuedVaas, &gossipv1.ChainGovernorStatus_EnqueuedVAA{
+					Sequence:      pe.dbData.Msg.Sequence,
+					ReleaseTime:   uint32(pe.dbData.ReleaseTime.Unix()),
+					NotionalValue: value,
+					TxHash:        pe.dbData.Msg.TxIDString(),
+				})
+			}
+		}
+
+		emitter := gossipv1.ChainGovernorStatus_Emitter{
+			EmitterAddress:    "0x" + ce.emitterAddr.String(),
+			TotalEnqueuedVaas: uint64(len(ce.pending)),
+			EnqueuedVaas:      enqueuedVaas,
+		}
+
+		chains = append(chains, &gossipv1.ChainGovernorStatus_Chain{
+			ChainId:                      uint32(ce.emitterChainId),
+			RemainingAvailableNotional:   remaining,
+			Emitters:                     []*gossipv1.ChainGovernorStatus_Emitter{&emitter},
+			SmallTxNetNotionalValue:      netUsage,
+			SmallTxOutgoingNotionalValue: smallTxNotional,
+			FlowCancelNotionalValue:      flowCancelNotional,
+		})
+	}
+
+	gov.statusPublishCounter += 1
+	payload := &gossipv1.ChainGovernorStatus{
+		NodeName:  hb.NodeName,
+		Counter:   gov.statusPublishCounter,
+		Timestamp: hb.Timestamp,
+		Chains:    chains,
+	}
+
+	b, err := proto.Marshal(payload)
+	if err != nil {
+		gov.logger.Error("failed to marshal status message", zap.Error(err))
+		return
+	}
+
+	digest := ethCrypto.Keccak256Hash(append(governorMessagePrefixStatus, b...))
+
+	sig, err := guardianSigner.Sign(ctx, digest.Bytes())
+	if err != nil {
+		panic(err)
+	}
+
+	msg := gossipv1.GossipMessage{Message: &gossipv1.GossipMessage_SignedChainGovernorStatus{
+		SignedChainGovernorStatus: &gossipv1.SignedChainGovernorStatus{
+			Status:       b,
+			Signature:    sig,
+			GuardianAddr: ourAddr.Bytes(),
+		}}}
+
+	b, err = proto.Marshal(&msg)
+	if err != nil {
+		panic(err)
+	}
+
+	sendC <- b
 }

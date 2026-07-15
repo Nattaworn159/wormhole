@@ -1,5 +1,338 @@
 # Changelog
 
+## 0.10.18
+
+Add Snaxchain testnet support
+Add Mantle and X Layer
+
+## 0.10.17
+
+Add Mantle mainnet support
+
+## 0.10.16
+
+Add X Layer mainnet support
+
+## 0.10.15
+
+Add Provenance to cosmwasm chains
+Add Scroll mainnet support
+Add Blast mainnet support
+
+## 0.10.14
+
+Support for move of relayer ethereum contracts
+Blast Sepolia support
+XLayer Sepolia support
+Linea Sepolia support
+Berachain Testnet support
+
+## 0.10.13
+
+Mantle Sepolia support
+
+## 0.10.12
+
+Polygon Sepolia support
+
+## 0.10.11
+
+### Changes
+
+Add Dymension to cosmwasm chains
+
+base64 encode payload being sent to injective token bridge
+
+### Removed
+
+getSignedBatchVAA, getSignedBatchVAAWithRetry
+
+## 0.10.10
+
+### Changes
+
+Added CCTP Sepolia chains support
+
+## 0.10.9
+
+### Changes
+
+Algorand: prevent creation of unnecessary transactions
+
+## 0.10.8
+
+### Added
+
+Holesky support
+
+## 0.10.7
+
+### Added
+
+Arbitrum on Sepolia support
+
+Base on Sepolia support
+
+Optimism on Sepolia support
+
+## 0.10.6
+
+### Added
+
+Celestia support
+
+Scroll testnet support
+
+### Changes
+
+Solana WrappedMeta deserialization fix
+
+## 0.10.5
+
+### Changes
+
+Auto relayer better status command
+
+## 0.10.4
+
+### Changes
+
+AutoRelayer: v1.1 Release
+
+Redeem on Algorand dynamic cost budget fix
+
+Fixes id check in token helper for sui
+
+## 0.10.3
+
+### Added
+
+Kujira chain support
+
+## 0.10.2
+
+### Added
+
+Transfer from Aptos with payload support
+
+### Changes
+
+transferFromAptos payload type changed from string to Uint8Array
+
+## 0.9.24
+
+### Changes
+
+Transfer from Sui with payload uses oldest EmitterCap _or_ creates a new one if none exist
+
+## 0.9.23
+
+### Changes
+
+Bumped algosdk to 2.4.0
+
+## 0.9.22
+
+### Added
+
+Base mainnet contract addresses
+
+## 0.9.21
+
+### Changes
+
+Relayer status function improvements
+
+Algorand changes for 3.16.2
+
+## 0.9.20
+
+### Added
+
+Generic relayer support
+
+### Changed
+
+Updated terra.js version
+
+## 0.9.18
+
+### Added
+
+Add support for Sei.
+
+### Changed
+
+injective parseSmartContractStateResponse fix
+
+## 0.9.17
+
+### Changed
+
+Normalize Sui types
+
+`unnormalizeSuiType` renamed to `trimSuiType`
+
+## 0.9.16
+
+### Changed
+
+Sui redeem fix
+
+## 0.9.15
+
+### Added
+
+Sui mainnet support
+
+## 0.9.14
+
+### Added
+
+Sei testnet support
+
+## 0.9.13
+
+### Added
+
+"sideEffects": false
+
+### Changed
+
+injective dependencies updated
+
+## 0.9.12
+
+### Added
+
+Sepolia testnet support
+
+## 0.9.11
+
+### Added
+
+Base testnet support
+
+## 0.9.10
+
+## Added
+
+Aptos NFT bridge support
+
+## 0.9.9
+
+## Changed
+
+Use BN.toArrayLike for compatibility with browserify and similar tools in `tokenIdToMint` function
+
+## 0.9.8
+
+## Changed
+
+Use BN.toArrayLike for compatibility with browserify and similar tools
+
+## 0.9.7
+
+## Added
+
+solana instruction decoder
+
+## 0.9.6
+
+## Changed
+
+injective dependencies updated
+
+solana token bridge cpi account fixes
+
+solana account and instruction serialization fixes
+
+## 0.9.5
+
+### Added
+
+injective mainnet addresses
+
+## 0.9.4
+
+## Changed
+
+Neon testnet addresses
+
+## 0.9.3
+
+Fix `transferFromSolana`, `transferNativeSol` and `redeemOnSolana` for Token Bridge.
+
+## 0.9.1
+
+### Added
+
+queryExternalIdInjective
+
+parseSmartContractStateResponse
+
+## 0.9.0
+
+### Added
+
+Methods to create transaction instructions for Wormhole (Core Bridge), Token Bridge and NFT Bridge
+
+Methods to generate PDAs for Wormhole (Core Bridge), Token Bridge and NFT Bridge
+
+Methods to deserialize account data for Wormhole (Core Bridge), Token Bridge and NFT Bridge
+
+Other Solana utility objects and methods
+
+VAA (Verified Wormhole Message) deserializers
+
+Optional Confirmation arguments for account retrieval and wherever they are relevant
+
+Mock objects to be used in local integration tests (e.g. MockGuardians)
+
+### Changed
+
+Use FQTs in Aptos SDK
+
+### Removed
+
+Dependency: @certusone/wormhole-sdk-wasm
+
+Removed support for Ropsten since the chain has been deprecated.
+
+## 0.8.0
+
+### Added
+
+Aptos support
+
+### Changed
+
+Wormchain rename
+
+## 0.7.2
+
+### Added
+
+XPLA mainnet support and functions
+
+## 0.7.1
+
+### Added
+
+Neon and XPLA testnet addresses
+
+## 0.7.0
+
+### Added
+
+Near mainnet support
+
+Injective testnet support
+
+getSignedBatchVAA
+
+getIsTransferCompletedTerra2
+
 ## 0.6.2
 
 ### Added

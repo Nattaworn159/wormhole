@@ -1,4 +1,4 @@
-// contracts/Bridge.sol
+// contracts/NFTBridge.sol
 // SPDX-License-Identifier: Apache 2
 
 pragma solidity ^0.8.0;
@@ -193,6 +193,7 @@ contract NFTBridge is NFTBridgeGovernance {
     }
 
     function verifyBridgeVM(IWormhole.VM memory vm) internal view returns (bool){
+        require(!isFork(), "invalid fork");
         if (bridgeContracts(vm.emitterChainId) == vm.emitterAddress) {
             return true;
         }
@@ -240,7 +241,7 @@ contract NFTBridge is NFTBridgeGovernance {
 
         transfer.tokenID = encoded.toUint256(index);
         index += 32;
-        
+
         // Ignore length due to malformatted payload
         index += 1;
         transfer.uri = string(encoded.slice(index, encoded.length - index - 34));

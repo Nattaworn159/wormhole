@@ -1,6 +1,8 @@
 import { arrayify, zeroPad } from "@ethersproject/bytes";
 import { PublicKey } from "@solana/web3.js";
-import { hexValue, hexZeroPad, stripZeros } from "ethers/lib/utils";
+import { hexValue, hexZeroPad, sha256, stripZeros } from "ethers/lib/utils";
+import { Provider as NearProvider } from "near-api-js/lib/providers";
+import { ethers } from "ethers";
 import {
   hexToNativeAssetStringAlgorand,
   nativeStringToHexAlgorand,
@@ -13,21 +15,37 @@ import {
   ChainId,
   ChainName,
   CHAIN_ID_ALGORAND,
-  CHAIN_ID_NEAR,
-  CHAIN_ID_INJECTIVE,
-  CHAIN_ID_OSMOSIS,
-  CHAIN_ID_SUI,
   CHAIN_ID_APTOS,
+  CHAIN_ID_INJECTIVE,
+  CHAIN_ID_NEAR,
+  CHAIN_ID_OSMOSIS,
+  CHAIN_ID_PYTHNET,
   CHAIN_ID_SOLANA,
+  CHAIN_ID_SUI,
   CHAIN_ID_TERRA,
   CHAIN_ID_TERRA2,
-  CHAIN_ID_WORMHOLE_CHAIN,
+  CHAIN_ID_WORMCHAIN,
   CHAIN_ID_UNSET,
   coalesceChainId,
   isEVMChain,
   isTerraChain,
-  CHAIN_ID_PYTHNET,
+  CHAIN_ID_XPLA,
+  CHAIN_ID_SEI,
+  CHAIN_ID_BTC,
+  CHAIN_ID_COSMOSHUB,
+  CHAIN_ID_EVMOS,
+  CHAIN_ID_KUJIRA,
+  CHAIN_ID_NEUTRON,
+  CHAIN_ID_CELESTIA,
+  CHAIN_ID_STARGAZE,
+  CHAIN_ID_SEDA,
+  CHAIN_ID_DYMENSION,
+  CHAIN_ID_PROVENANCE,
 } from "./consts";
+import { hashLookup } from "./near";
+import { getExternalAddressFromType, isValidAptosType } from "./aptos";
+import { isValidSuiAddress } from "@mysten/sui.js";
+import { isValidSuiType } from "../sui";
 
 /**
  *
@@ -48,7 +66,7 @@ import {
  */
 export const isHexNativeTerra = (h: string): boolean => h.startsWith("01");
 
-const isLikely20ByteTerra = (h: string): boolean =>
+const isLikely20ByteCosmwasm = (h: string): boolean =>
   h.startsWith("000000000000000000000000");
 
 export const nativeTerraHexToDenom = (h: string): string =>
@@ -57,8 +75,10 @@ export const nativeTerraHexToDenom = (h: string): string =>
 export const uint8ArrayToHex = (a: Uint8Array): string =>
   Buffer.from(a).toString("hex");
 
-export const hexToUint8Array = (h: string): Uint8Array =>
-  new Uint8Array(Buffer.from(h, "hex"));
+export const hexToUint8Array = (h: string): Uint8Array => {
+  if (h.startsWith("0x")) h = h.slice(2);
+  return new Uint8Array(Buffer.from(h, "hex"));
+};
 
 /**
  *
@@ -82,34 +102,76 @@ export const tryUint8ArrayToNative = (
     if (isHexNativeTerra(h)) {
       return nativeTerraHexToDenom(h);
     } else {
-      if (chainId === CHAIN_ID_TERRA2 && !isLikely20ByteTerra(h)) {
+      if (chainId === CHAIN_ID_TERRA2 && !isLikely20ByteCosmwasm(h)) {
         // terra 2 has 32 byte addresses for contracts and 20 for wallets
         return humanAddress("terra", a);
       }
       return humanAddress("terra", a.slice(-20));
     }
+  } else if (chainId === CHAIN_ID_INJECTIVE) {
+    const h = uint8ArrayToHex(a);
+    return humanAddress("inj", isLikely20ByteCosmwasm(h) ? a.slice(-20) : a);
   } else if (chainId === CHAIN_ID_ALGORAND) {
     return uint8ArrayToNativeStringAlgorand(a);
-  } else if (chainId == CHAIN_ID_WORMHOLE_CHAIN) {
-    // wormhole-chain addresses are always 20 bytes.
-    return humanAddress("wormhole", a.slice(-20));
+  } else if (chainId == CHAIN_ID_WORMCHAIN) {
+    const h = uint8ArrayToHex(a);
+    return humanAddress(
+      "wormhole",
+      isLikely20ByteCosmwasm(h) ? a.slice(-20) : a
+    );
+  } else if (chainId === CHAIN_ID_XPLA) {
+    const h = uint8ArrayToHex(a);
+    return humanAddress("xpla", isLikely20ByteCosmwasm(h) ? a.slice(-20) : a);
+  } else if (chainId === CHAIN_ID_SEI) {
+    const h = uint8ArrayToHex(a);
+    return humanAddress("sei", isLikely20ByteCosmwasm(h) ? a.slice(-20) : a);
   } else if (chainId === CHAIN_ID_NEAR) {
-    throw Error("uint8ArrayToNative: Near not supported yet.");
-  } else if (chainId === CHAIN_ID_INJECTIVE) {
-    throw Error("uint8ArrayToNative: Injective not supported yet.");
+    throw Error("uint8ArrayToNative: Use tryHexToNativeStringNear instead.");
   } else if (chainId === CHAIN_ID_OSMOSIS) {
     throw Error("uint8ArrayToNative: Osmosis not supported yet.");
+  } else if (chainId === CHAIN_ID_COSMOSHUB) {
+    throw Error("uint8ArrayToNative: CosmosHub not supported yet.");
+  } else if (chainId === CHAIN_ID_EVMOS) {
+    throw Error("uint8ArrayToNative: Evmos not supported yet.");
+  } else if (chainId === CHAIN_ID_KUJIRA) {
+    throw Error("uint8ArrayToNative: Kujira not supported yet.");
+  } else if (chainId === CHAIN_ID_NEUTRON) {
+    throw Error("uint8ArrayToNative: Neutron not supported yet.");
+  } else if (chainId === CHAIN_ID_CELESTIA) {
+    throw Error("uint8ArrayToNative: Celestia not supported yet.");
+  } else if (chainId === CHAIN_ID_STARGAZE) {
+    throw Error("uint8ArrayToNative: Stargaze not supported yet.");
+  } else if (chainId === CHAIN_ID_SEDA) {
+    throw Error("uint8ArrayToNative: Seda not supported yet.");
+  } else if (chainId === CHAIN_ID_DYMENSION) {
+    throw Error("uint8ArrayToNative: Dymension not supported yet.");
+  } else if (chainId === CHAIN_ID_PROVENANCE) {
+    throw Error("uint8ArrayToNative: Provenance not supported yet.");
   } else if (chainId === CHAIN_ID_SUI) {
     throw Error("uint8ArrayToNative: Sui not supported yet.");
   } else if (chainId === CHAIN_ID_APTOS) {
     throw Error("uint8ArrayToNative: Aptos not supported yet.");
   } else if (chainId === CHAIN_ID_UNSET) {
     throw Error("uint8ArrayToNative: Chain id unset");
+  } else if (chainId === CHAIN_ID_BTC) {
+    throw Error("uint8ArrayToNative: Btc not supported");
   } else {
     // This case is never reached
     const _: never = chainId;
     throw Error("Don't know how to convert address for chain " + chainId);
   }
+};
+
+export const tryHexToNativeStringNear = async (
+  provider: NearProvider,
+  tokenBridge: string,
+  address: string
+): Promise<string> => {
+  const { found, value } = await hashLookup(provider, tokenBridge, address);
+  if (!found) {
+    throw new Error("Address not found");
+  }
+  return value;
 };
 
 /**
@@ -207,24 +269,58 @@ export const tryNativeToHexString = (
     } else {
       return uint8ArrayToHex(zeroPad(canonicalAddress(address), 32));
     }
-  } else if (chainId === CHAIN_ID_TERRA2) {
-    return buildTokenId(address);
+  } else if (
+    chainId === CHAIN_ID_TERRA2 ||
+    chainId === CHAIN_ID_INJECTIVE ||
+    chainId === CHAIN_ID_XPLA ||
+    chainId === CHAIN_ID_SEI
+  ) {
+    return buildTokenId(chainId, address);
   } else if (chainId === CHAIN_ID_ALGORAND) {
     return nativeStringToHexAlgorand(address);
-  } else if (chainId == CHAIN_ID_WORMHOLE_CHAIN) {
+  } else if (chainId == CHAIN_ID_WORMCHAIN) {
     return uint8ArrayToHex(zeroPad(canonicalAddress(address), 32));
   } else if (chainId === CHAIN_ID_NEAR) {
-    throw Error("hexToNativeString: Near not supported yet.");
-  } else if (chainId === CHAIN_ID_INJECTIVE) {
-    throw Error("hexToNativeString: Injective not supported yet.");
+    return uint8ArrayToHex(arrayify(sha256(Buffer.from(address))));
   } else if (chainId === CHAIN_ID_OSMOSIS) {
-    throw Error("hexToNativeString: Osmosis not supported yet.");
+    throw Error("nativeToHexString: Osmosis not supported yet.");
+  } else if (chainId === CHAIN_ID_COSMOSHUB) {
+    throw Error("nativeToHexString: CosmosHub not supported yet.");
+  } else if (chainId === CHAIN_ID_EVMOS) {
+    throw Error("nativeToHexString: Evmos not supported yet.");
+  } else if (chainId === CHAIN_ID_KUJIRA) {
+    throw Error("nativeToHexString: Kujira not supported yet.");
+  } else if (chainId === CHAIN_ID_NEUTRON) {
+    throw Error("nativeToHexString: Neutron not supported yet.");
+  } else if (chainId === CHAIN_ID_CELESTIA) {
+    throw Error("nativeToHexString: Celestia not supported yet.");
+  } else if (chainId === CHAIN_ID_STARGAZE) {
+    throw Error("nativeToHexString: Stargaze not supported yet.");
+  } else if (chainId === CHAIN_ID_SEDA) {
+    throw Error("nativeToHexString: Seda not supported yet.");
+  } else if (chainId === CHAIN_ID_DYMENSION) {
+    throw Error("nativeToHexString: Dymension not supported yet.");
+  } else if (chainId === CHAIN_ID_PROVENANCE) {
+    throw Error("nativeToHexString: Provenance not supported yet.");
   } else if (chainId === CHAIN_ID_SUI) {
-    throw Error("hexToNativeString: Sui not supported yet.");
+    if (!isValidSuiType(address) && isValidSuiAddress(address)) {
+      return uint8ArrayToHex(
+        zeroPad(arrayify(address, { allowMissingPrefix: true }), 32)
+      );
+    }
+    throw Error("nativeToHexString: Sui types not supported yet.");
+  } else if (chainId === CHAIN_ID_BTC) {
+    throw Error("nativeToHexString: Btc not supported yet.");
   } else if (chainId === CHAIN_ID_APTOS) {
-    throw Error("hexToNativeString: Aptos not supported yet.");
+    if (isValidAptosType(address)) {
+      return getExternalAddressFromType(address);
+    }
+
+    return uint8ArrayToHex(
+      zeroPad(arrayify(address, { allowMissingPrefix: true }), 32)
+    );
   } else if (chainId === CHAIN_ID_UNSET) {
-    throw Error("hexToNativeString: Chain id unset");
+    throw Error("nativeToHexString: Chain id unset");
   } else {
     // If this case is reached
     const _: never = chainId;
@@ -289,4 +385,15 @@ export function textToHexString(name: string): string {
 
 export function textToUint8Array(name: string): Uint8Array {
   return new Uint8Array(Buffer.from(name, "binary"));
+}
+
+export function hex(x: string): Buffer {
+  return Buffer.from(
+    ethers.utils.hexlify(x, { allowMissingPrefix: true }).substring(2),
+    "hex"
+  );
+}
+
+export function ensureHexPrefix(x: string): string {
+  return x.substring(0, 2) !== "0x" ? `0x${x}` : x;
 }
