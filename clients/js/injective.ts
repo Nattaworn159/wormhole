@@ -131,7 +131,11 @@ export async function execute_injective(
       execute_msg = impossible(payload);
   }
 
-  const [[action, msg]] = Object.entries(execute_msg);
+  const executeMsgEntries = Object.entries(execute_msg);
+  if (executeMsgEntries.length !== 1) {
+    throw new Error("Invalid Injective execute message");
+  }
+  const [[action, msg]] = executeMsgEntries;
   console.log("execute_msg", execute_msg);
   const transaction = MsgExecuteContract.fromJSON({
     sender: walletInjAddr,
