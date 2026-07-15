@@ -619,7 +619,12 @@ yargs(hideBin(process.argv))
       } else if (chain === "near") {
         await execute_near(parsed_vaa.payload, vaa_hex, network);
       } else if (chain === "injective") {
-        await execute_injective(parsed_vaa.payload, buf, network);
+        await execute_injective(
+          parsed_vaa.payload,
+          buf,
+          network,
+          argv["contract-address"]
+        );
       } else if (chain === "osmosis") {
         throw Error("OSMOSIS is not supported yet");
       } else if (chain === "sui") {

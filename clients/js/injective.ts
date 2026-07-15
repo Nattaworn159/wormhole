@@ -6,7 +6,7 @@ import {
   ChainRestAuthApi,
 } from "@injectivelabs/sdk-ts";
 import { PrivateKey } from "@injectivelabs/sdk-ts/dist/local";
-import { createTransaction, MsgArg, TxGrpcClient } from "@injectivelabs/tx-ts";
+import { createTransaction, TxGrpcClient } from "@injectivelabs/tx-ts";
 import { fromUint8Array } from "js-base64";
 import { impossible, Payload } from "./vaa";
 import { NETWORKS } from "./networks";
@@ -15,7 +15,8 @@ import { CONTRACTS } from "@certusone/wormhole-sdk";
 export async function execute_injective(
   payload: Payload,
   vaa: Buffer,
-  environment: "MAINNET" | "TESTNET" | "DEVNET"
+  environment: "MAINNET" | "TESTNET" | "DEVNET",
+  contractAddress?: string
 ) {
   if (environment === "DEVNET") {
     throw new Error("Injective is not supported in DEVNET");
@@ -37,12 +38,17 @@ export async function execute_injective(
     Buffer.from(walletPKHash, "hex")
   );
 
-  let target_contract: string;
-  let execute_msg: object;
+  let target_contract: string | undefined;
+  let execute_msg: Record<string, object>;
 
   switch (payload.module) {
     case "Core":
-      target_contract = contracts.core;
+      target_contract = contractAddress ?? contracts.core;
+      if (target_contract === undefined) {
+        throw new Error(
+          `No ${environment} Core contract defined for Injective; pass --contract-address to override`
+        );
+      }
       execute_msg = {
         submit_v_a_a: {
           vaa: fromUint8Array(vaa),
@@ -60,13 +66,15 @@ export async function execute_injective(
       }
       break;
     case "NFTBridge":
-      if (contracts.nft_bridge === undefined) {
+      target_contract = contractAddress ?? contracts.nft_bridge;
+      if (target_contract === undefined) {
         // NOTE: this code can safely be removed once the injective NFT bridge is
         // released, but it's fine for it to stay, as the condition will just be
         // skipped once 'contracts.nft_bridge' is defined
-        throw new Error("NFT bridge not supported yet for injective");
+        throw new Error(
+          `No ${environment} NFT bridge contract defined for Injective; pass --contract-address to override`
+        );
       }
-      target_contract = contracts.nft_bridge;
       execute_msg = {
         submit_vaa: {
           data: fromUint8Array(vaa),
@@ -87,11 +95,12 @@ export async function execute_injective(
       }
       break;
     case "TokenBridge":
-      console.log("contracts:", contracts);
-      if (contracts.token_bridge === undefined) {
-        throw new Error("contracts.token_bridge is undefined");
+      target_contract = contractAddress ?? contracts.token_bridge;
+      if (target_contract === undefined) {
+        throw new Error(
+          `No ${environment} TokenBridge contract defined for Injective; pass --contract-address to override`
+        );
       }
-      target_contract = contracts.token_bridge;
       execute_msg = {
         submit_vaa: {
           data: fromUint8Array(vaa),
@@ -122,14 +131,13 @@ export async function execute_injective(
       execute_msg = impossible(payload);
   }
 
+  const [[action, msg]] = Object.entries(execute_msg);
   console.log("execute_msg", execute_msg);
   const transaction = MsgExecuteContract.fromJSON({
     sender: walletInjAddr,
     contractAddress: target_contract,
-    msg: {
-      data: fromUint8Array(vaa),
-    },
-    action: "submit_vaa",
+    msg,
+    action,
   });
   console.log("transaction:", transaction);
 

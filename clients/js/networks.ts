@@ -79,14 +79,15 @@ const MAINNET = {
     key: get_env_var("ETH_KEY"),
   },
   near: {
-    rpc: undefined,
+    rpc: "https://rpc.mainnet.near.org",
     key: get_env_var("NEAR_KEY"),
     networkId: "mainnet",
     baseAccount: "wormhole.mainnet",
   },
   injective: {
-    rpc: undefined,
-    key: undefined,
+    rpc: "https://tm.injective.network",
+    chain_id: "injective-1",
+    key: get_env_var("INJECTIVE_KEY"),
   },
   osmosis: {
     rpc: undefined,
