@@ -12,6 +12,18 @@ import { impossible, Payload } from "./vaa";
 import { NETWORKS } from "./networks";
 import { CONTRACTS } from "@certusone/wormhole-sdk";
 
+type ExecuteMsg =
+  | {
+      submit_v_a_a: {
+        vaa: string;
+      };
+    }
+  | {
+      submit_vaa: {
+        data: string;
+      };
+    };
+
 export async function execute_injective(
   payload: Payload,
   vaa: Buffer,
@@ -39,7 +51,7 @@ export async function execute_injective(
   );
 
   let target_contract: string | undefined;
-  let execute_msg: Record<string, object>;
+  let execute_msg: ExecuteMsg;
 
   switch (payload.module) {
     case "Core":
@@ -133,7 +145,9 @@ export async function execute_injective(
 
   const executeMsgEntries = Object.entries(execute_msg);
   if (executeMsgEntries.length !== 1) {
-    throw new Error("Invalid Injective execute message");
+    throw new Error(
+      `Expected Injective execute message to have exactly one entry, found ${executeMsgEntries.length}`
+    );
   }
   const [[action, msg]] = executeMsgEntries;
   console.log("execute_msg", execute_msg);
