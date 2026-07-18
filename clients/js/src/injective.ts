@@ -6,7 +6,7 @@ import {
   ChainGrpcWasmApi,
   ChainRestAuthApi,
   createTransaction,
-  MsgExecuteContractCompat,
+  MsgExecuteContract,
   Msgs,
   PrivateKey,
   TxGrpcApi,
@@ -25,10 +25,23 @@ import {
 import { chains } from "@wormhole-foundation/sdk";
 import { tryNativeToUint8Array } from "./sdk/array";
 
+type ExecuteMsg =
+  | {
+      submit_v_a_a: {
+        vaa: string;
+      };
+    }
+  | {
+      submit_vaa: {
+        data: string;
+      };
+    };
+
 export async function execute_injective(
   payload: Payload,
   vaa: Buffer,
-  network: Network
+  network: Network,
+  contractAddress?: string
 ) {
   if (network === "Devnet") {
     throw new Error("Injective is not supported in DEVNET");
@@ -44,21 +57,25 @@ export async function execute_injective(
       ? InjectiveNetwork.MainnetK8s
       : InjectiveNetwork.TestnetK8s;
 
-  const networkInfo = getNetworkInfo(endPoint);
   const walletPK = PrivateKey.fromMnemonic(key);
   const walletInjAddr = walletPK.toBech32();
-  const walletPublicKey = walletPK.toPublicKey().toBase64();
 
-  let target_contract: string;
-  let action: "submit_v_a_a" | "submit_vaa";
-  let execute_msg: { vaa: string } | { data: string };
+  let target_contract: string | undefined;
+  let execute_msg: ExecuteMsg;
 
   switch (payload.module) {
     case "Core": {
-      target_contract = contracts.coreBridge(network, "Injective");
-      action = "submit_v_a_a";
+      target_contract = contractAddress ?? contracts.coreBridge(network, chain);
+      if (!target_contract) {
+        throw new Error(
+          `No ${network} Core contract defined for Injective; pass --contract-address to override`
+        );
+      }
+      // Core CosmWasm contracts use submit_v_a_a, while bridge contracts use submit_vaa.
       execute_msg = {
-        vaa: fromUint8Array(vaa),
+        submit_v_a_a: {
+          vaa: fromUint8Array(vaa),
+        },
       };
       switch (payload.type) {
         case "GuardianSetUpgrade":
@@ -76,18 +93,21 @@ export async function execute_injective(
       break;
     }
     case "NFTBridge": {
-      const nftContract = contracts.nftBridge.get(network, "Injective");
-      if (!nftContract) {
+      target_contract =
+        contractAddress ?? contracts.nftBridge.get(network, chain);
+      if (!target_contract) {
         // NOTE: this code can safely be removed once the injective NFT bridge is
         // released, but it's fine for it to stay, as the condition will just be
         // skipped once 'contracts.nft_bridge' is defined
-        throw new Error("NFT bridge not supported yet for injective");
+        throw new Error(
+          `No ${network} NFT bridge contract defined for Injective; pass --contract-address to override`
+        );
       }
 
-      target_contract = nftContract;
-      action = "submit_vaa";
       execute_msg = {
-        data: fromUint8Array(vaa),
+        submit_vaa: {
+          data: fromUint8Array(vaa),
+        },
       };
       switch (payload.type) {
         case "ContractUpgrade":
@@ -108,15 +128,18 @@ export async function execute_injective(
       break;
     }
     case "TokenBridge": {
-      const tbContract = contracts.tokenBridge.get(network, "Injective");
-      if (!tbContract) {
-        throw new Error("contracts.token_bridge is undefined");
+      target_contract =
+        contractAddress ?? contracts.tokenBridge.get(network, chain);
+      if (!target_contract) {
+        throw new Error(
+          `No ${network} TokenBridge contract defined for Injective; pass --contract-address to override`
+        );
       }
 
-      target_contract = tbContract;
-      action = "submit_vaa";
       execute_msg = {
-        data: fromUint8Array(vaa),
+        submit_vaa: {
+          data: fromUint8Array(vaa),
+        },
       };
       switch (payload.type) {
         case "ContractUpgrade":
@@ -144,20 +167,25 @@ export async function execute_injective(
     case "WormholeRelayer":
       throw Error("Wormhole Relayer not supported on Injective");
     default:
-      action = impossible(payload);
       target_contract = impossible(payload);
       execute_msg = impossible(payload);
   }
 
-  console.log("execute_msg", { [action]: execute_msg });
-  const transaction = MsgExecuteContractCompat.fromJSON({
+  const executeMsgEntries = Object.entries(execute_msg);
+  if (executeMsgEntries.length !== 1) {
+    throw new Error(
+      `Expected Injective execute message to have exactly one entry, found ${executeMsgEntries.length}`
+    );
+  }
+  const [action, msg] = executeMsgEntries[0];
+
+  console.log("execute_msg", execute_msg);
+  const transaction = MsgExecuteContract.fromJSON({
     sender: walletInjAddr,
     contractAddress: target_contract,
     exec: {
       action,
-      msg: {
-        ...execute_msg,
-      },
+      msg,
     },
   });
   console.log("transaction:", transaction);
@@ -207,7 +235,7 @@ async function signAndSendTx(
   msgs: Msgs | Msgs[]
 ) {
   const endPoint =
-    network === "MAINNET"
+    network === "Mainnet"
       ? InjectiveNetwork.MainnetK8s
       : InjectiveNetwork.TestnetK8s;
   const networkInfo = getNetworkInfo(endPoint);
