@@ -6,6 +6,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "../interfaces/IWormhole.sol";
+import "./interfaces/IWETH.sol";
 
 import "./BridgeState.sol";
 
@@ -28,6 +29,14 @@ contract BridgeGetters is BridgeState {
 
     function chainId() public view returns (uint16){
         return _state.provider.chainId;
+    }
+
+    function evmChainId() public view returns (uint256) {
+        return _state.evmChainId;
+    }
+
+    function isFork() public view returns (bool) {
+        return evmChainId() != block.chainid;
     }
 
     function governanceChainId() public view returns (uint16){
@@ -65,10 +74,4 @@ contract BridgeGetters is BridgeState {
     function finality() public view returns (uint8) {
         return _state.provider.finality;
     }
-}
-
-interface IWETH is IERC20 {
-    function deposit() external payable;
-
-    function withdraw(uint amount) external;
 }

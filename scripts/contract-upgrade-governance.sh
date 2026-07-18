@@ -28,22 +28,36 @@
 
 set -euo pipefail
 
-function usage() {
-cat <<EOF >&2
-Usage:
+usage() {
+  cat <<-EOF >&2
+	Usage: $(basename "$0") [OPTIONS]
 
-  $(basename "$0") [-h] [-m s] [-c s] [-a s] [-o d] -- Generate governance proposal for a given module to be upgraded to a given address
+	Generate governance proposal for a module to be upgraded to a given address.
 
-  where:
-    -h  show this help text
-    -m  module (bridge, token_bridge, nft_bridge)
-    -c  chain name
-    -a  new code address (example: 0x3f1a6729bb27350748f0a0bd85ca641a100bf0a1)
-    -o  multi-mode output directory
+	Options:
+	  -h, --help                Show this help message
+	  -m, --module <module>     Specify the module (bridge, token_bridge, nft_bridge)
+	  -c, --chain <chain_name>  Specify the chain name
+	  -a, --address <address>   Specify the new code address (e.g., 0x3f1a6729bb27350748f0a0bd85ca641a100bf0a1)
+	  -o, --output <output_dir> Specify the multi-mode output directory
+	  -f, --force               Force: bypass dirty git repo check
+
 EOF
-exit 1
+  exit 1
 }
 
+# Check if guardiand command exists. It's needed for generating the protoxt and
+# computing the digest.
+if ! command -v guardiand >/dev/null 2>&1; then
+  echo "ERROR: guardiand binary not found" >&2
+  exit 1
+fi
+
+# Check if the worm command exists. It's needed for computing the digest.
+if ! command -v worm >/dev/null 2>&1; then
+  echo "ERROR: worm binary not found" >&2
+  exit 1
+fi
 
 ### Parse command line options
 address=""
@@ -51,32 +65,61 @@ module=""
 chain_name=""
 multi_mode=false
 out_dir=""
-while getopts ':hm:c:a:o:' option; do
-  case "$option" in
-    h) usage
-       ;;
-    m) module=$OPTARG
-       ;;
-    c) chain_name=$OPTARG
-       ;;
-    a) address=$OPTARG
-       ;;
-    o) multi_mode=true
-       out_dir=$OPTARG
-       ;;
-    :) printf "missing argument for -%s\n" "$OPTARG" >&2
-       usage
-       ;;
-   \?) printf "illegal option: -%s\n" "$OPTARG" >&2
-       usage
-       ;;
+allow_dirty=false
+
+while (( "$#" )); do
+  case "$1" in
+    -h|--help)
+      usage
+      ;;
+    -m|--module)
+      module="$2"
+      shift 2
+      ;;
+    -c|--chain)
+      chain_name="$2"
+      shift 2
+      ;;
+    -a|--address)
+      address="$2"
+      shift 2
+      ;;
+    -o|--output)
+      multi_mode=true
+      out_dir="$2"
+      shift 2
+      ;;
+    -f|--force)
+      allow_dirty=true
+      shift
+      ;;
+    --) # end of options
+      shift
+      break
+      ;;
+    -*)
+      echo "Error: Unsupported option $1" >&2
+      usage
+      ;;
+    *) # anything else
+      echo "Error: Unsupported argument $1" >&2
+      usage
+      ;;
   esac
 done
-shift $((OPTIND - 1))
 
 [ -z "$address" ] && usage
 [ -z "$chain_name" ] && usage
 [ -z "$module" ] && usage
+
+# Check if the git tree is dirty
+if [ "$allow_dirty" = false ]; then
+  if ! git diff-index --quiet HEAD --; then
+    echo "ERROR: git tree is dirty. Commit or stash your changes first." >&2
+    echo "If you are sure you want to proceed, use the --force flag." >&2
+    exit 1
+  fi
+fi
 
 ### The script constructs the governance proposal in two different steps. First,
 ### the governance prototxt (for VAA injection by the guardiand tool), then the voting/verification instructions.
@@ -98,6 +141,12 @@ case "$chain_name" in
   solana)
     chain=1
     explorer="https://explorer.solana.com/address/"
+    extra=""
+    ;;
+  pythnet)
+    chain=26
+    explorer="https://explorer.solana.com/address/"
+    extra="Be sure to choose \"Custom RPC\" as the cluster in the explorer and set it to https://pythnet.rpcpool.com"
     ;;
   ethereum)
     chain=2
@@ -108,7 +157,7 @@ case "$chain_name" in
     chain=3
     # This is not technically the explorer, but terra finder does not show
     # information about code ids, so this is the best we can do.
-    explorer="https://lcd.terra.dev/terra/wasm/v1beta1/codes/"
+    explorer="https://terra-classic-lcd.publicnode.com/cosmwasm/wasm/v1/code/"
     ;;
   bsc)
     chain=4
@@ -135,6 +184,10 @@ case "$chain_name" in
     explorer="https://aurorascan.dev/address/"
     evm=true
     ;;
+  algorand)
+    chain=8
+    explorer="https://algoexplorer.io/address/"
+    ;;
   fantom)
     chain=10
     explorer="https://ftmscan.com/address/"
@@ -149,7 +202,7 @@ case "$chain_name" in
     chain=12
     explorer="https://blockscout.acala.network/address/"
     evm=true
-    ;;    
+    ;;
   klaytn)
     chain=13
     explorer="https://scope.klaytn.com/account/"
@@ -158,6 +211,31 @@ case "$chain_name" in
   celo)
     chain=14
     explorer="https://celoscan.xyz/address/"
+    evm=true
+    ;;
+  near)
+    chain=15
+    explorer="https://explorer.near.org/accounts/"
+    ;;
+  arbitrum)
+    chain=23
+    explorer="https://arbiscan.io/address/"
+    evm=true
+    ;;
+  optimism)
+    chain=24
+    explorer="https://optimistic.etherscan.io/address/"
+    evm=true
+    ;;
+  aptos)
+    chain=22
+    explorer="https://explorer.aptoslabs.com/account/"
+    ;;
+  base)
+    echo "Need to specify the base explorer URL!"
+    exit 1
+    chain=30
+    explorer="??/address/"
     evm=true
     ;;
   *)
@@ -176,52 +254,121 @@ if [ "$chain_name" = "terra" ]; then
   address="\$(printf \"%064x\" $terra_code_id)"
 fi
 
-create_governance=""
-evm_artifact=""
-solana_artifact=""
-terra_artifact=""
-case "$module" in
+# Generate the command to create the governance prototxt
+function create_governance() {
+  case "$module" in
   bridge|core)
-    create_governance="\
+    echo "\
 guardiand template contract-upgrade \\
   --chain-id $chain \\
   --new-address $address"
-
-    evm_artifact="build/contracts/Implementation.json"
-    solana_artifact="artifacts-mainnet/bridge.so"
-    terra_artifact="artifacts/wormhole.wasm"
     ;;
   token_bridge)
-    create_governance="\
+    echo "\
 guardiand template token-bridge-upgrade-contract \\
   --chain-id $chain --module \"TokenBridge\" \\
   --new-address $address"
-
-    evm_artifact="build/contracts/BridgeImplementation.json"
-    solana_artifact="artifacts-mainnet/token_bridge.so"
-    terra_artifact="artifacts/token_bridge_terra.wasm"
     ;;
   nft_bridge)
-    create_governance="\
+    echo "\
 guardiand template token-bridge-upgrade-contract \\
   --chain-id $chain --module \"NFTBridge\" \\
   --new-address $address"
-
-    evm_artifact="build/contracts/NFTBridgeImplementation.json"
-    solana_artifact="artifacts-mainnet/nft_bridge.so"
-    terra_artifact="artifacts/nft_bridge.wasm"
+    ;;
+  wormhole_relayer)
+    echo "\
+guardiand template token-bridge-upgrade-contract \\
+  --chain-id $chain --module \"WormholeRelayer\" \\
+  --new-address $address"
     ;;
   *) echo "unknown module $module" >&2
      usage
      ;;
-esac
+  esac
+}
+
+function evm_artifact() {
+  case "$module" in
+  bridge|core)
+    echo "build/contracts/Implementation.json"
+    ;;
+  token_bridge)
+    echo "build/contracts/BridgeImplementation.json"
+    ;;
+  nft_bridge)
+    echo "build/contracts/NFTBridgeImplementation.json"
+    ;;
+  *) echo "unknown module $module" >&2
+     usage
+     ;;
+  esac
+}
+
+function solana_artifact() {
+  case "$module" in
+  bridge|core)
+    echo "artifacts-mainnet/bridge.so"
+    ;;
+  token_bridge)
+    echo "artifacts-mainnet/token_bridge.so"
+    ;;
+  nft_bridge)
+    echo "artifacts-mainnet/nft_bridge.so"
+    ;;
+  *) echo "unknown module $module" >&2
+     usage
+     ;;
+  esac
+}
+
+function near_artifact() {
+  case "$module" in
+  bridge|core)
+    echo "artifacts/near_wormhole.wasm"
+    ;;
+  token_bridge)
+    echo "artifacts/near_token_bridge.wasm"
+    ;;
+  *) echo "unknown module $module" >&2
+     usage
+     ;;
+  esac
+}
+
+function algorand_artifact() {
+  case "$module" in
+  bridge|core)
+    echo "artifacts/core_approve.teal.hash"
+    ;;
+  token_bridge)
+    echo "artifacts/token_approve.teal.hash"
+    ;;
+  *) echo "unknown module $module" >&2
+     usage
+     ;;
+  esac
+}
+
+function terra_artifact() {
+  case "$module" in
+  bridge|core)
+    echo "artifacts/wormhole.wasm"
+    ;;
+  token_bridge)
+    echo "artifacts/token_bridge_terra.wasm"
+    ;;
+  *) echo "unknown module $module" >&2
+     usage
+     ;;
+  esac
+}
 
 ################################################################################
 # Construct the governance proto
 
 echo "# $module upgrade on $chain_name" >> "$gov_msg_file"
 # Append the new governance message to the gov file
-eval "$create_governance" >> "$gov_msg_file"
+eval "$(create_governance)" >> "$gov_msg_file"
 
 # Multiple messages will include multiple 'current_set_index' fields, but the
 # proto format only takes one. This next part cleans up the file so there's only
@@ -243,6 +390,11 @@ echo "$rest" >> "$gov_msg_file"
 verify=$(guardiand admin governance-vaa-verify "$gov_msg_file" 2>&1)
 digest=$(echo "$verify" | grep "VAA with digest" | cut -d' ' -f6 | sed 's/://g')
 
+# massage the digest into the same format that the inject command prints it
+digest=$(echo "$digest" | awk '{print toupper($0)}' | sed 's/^0X//')
+# we use the first 7 characters of the digest as an identifier for the prototxt file
+gov_id=$(echo "$digest" | cut -c1-7)
+
 ################################################################################
 # Print vote command and expected digests
 
@@ -253,12 +405,12 @@ cat <<-EOD
 	Shell command for voting:
 
 	\`\`\`shell
-	cat << EOF > governance.prototxt
+	cat << EOF > governance-$gov_id.prototxt
 	$(cat "$gov_msg_file")
 
 	EOF
 
-	guardiand admin governance-vaa-inject --socket /path/to/admin.sock governance.prototxt
+	guardiand admin governance-vaa-inject --socket /path/to/admin.sock governance-$gov_id.prototxt
 	\`\`\`
 
 	Expected digest(s):
@@ -275,6 +427,15 @@ EOD
 echo "# Verification steps ($chain_name $module)
 " >> "$instructions_file"
 
+# Print instructions on checking out the current git hash:
+git_hash=$(git rev-parse HEAD)
+echo "
+## Checkout the current git hash
+\`\`\`shell
+git fetch
+git checkout $git_hash
+\`\`\`" >> "$instructions_file"
+
 # Verification steps depend on the chain.
 
 if [ "$evm" = true ]; then
@@ -290,11 +451,11 @@ if [ "$evm" = true ]; then
 	Next, use the \`verify\` script to verify that the deployed bytecodes we are upgrading to match the build artifacts:
 
 	\`\`\`shell
-	wormhole/ethereum $ ./verify -r $(worm rpc mainnet $chain_name) -c $chain_name $evm_artifact $address
+	wormhole/ethereum $ ./verify -r $(worm info rpc mainnet $chain_name) -c $chain_name $(evm_artifact) $address
 	\`\`\`
 
 EOF
-elif [ "$chain_name" = "solana" ]; then
+elif [ "$chain_name" = "solana" ] || [ "$chain_name" = "pythnet" ]; then
   cat <<-EOF >> "$instructions_file"
 	## Build
 	\`\`\`shell
@@ -307,12 +468,42 @@ elif [ "$chain_name" = "solana" ]; then
 	## Verify
 	Contract at [$explorer$address]($explorer$address)
 
+  $extra
+
 	Next, use the \`verify\` script to verify that the deployed bytecodes we are upgrading to match the build artifacts:
 
 	\`\`\`shell
 	# $module
-	wormhole/solana$ ./verify -n mainnet $solana_artifact $address
+	wormhole/solana$ ./verify -n mainnet $(solana_artifact) $address
 	\`\`\`
+EOF
+elif [ "$chain_name" = "near" ]; then
+  cat <<-EOF >> "$instructions_file"
+	## Build
+	\`\`\`shell
+	wormhole/near $ make artifacts
+	\`\`\`
+
+	This command will compile all the contracts into the \`artifacts\` directory using Docker to ensure that the build artifacts are deterministic.
+
+	Next, you can look at the checksums of the built .wasm files
+
+	\`\`\`shell
+	# $module
+	wormhole/near$ sha256sum $(near_artifact)
+	\`\`\`
+EOF
+elif [ "$chain_name" = "algorand" ]; then
+  cat <<-EOF >> "$instructions_file"
+	## Build
+	\`\`\`shell
+	wormhole/algorand $ make artifacts
+	\`\`\`
+
+	This command will compile all the contracts into the \`artifacts\` directory using Docker to ensure that the build artifacts are deterministic.
+
+	You can then review $(algorand_artifact) to confirm the supplied hash value
+
 EOF
 elif [ "$chain_name" = "terra" ]; then
   cat <<-EOF >> "$instructions_file"
@@ -330,7 +521,26 @@ elif [ "$chain_name" = "terra" ]; then
 
 	\`\`\`shell
 	# $module
-	wormhole/terra$ ./verify -n mainnet $terra_artifact $terra_code_id
+	wormhole/terra$ ./verify -n mainnet $(terra_artifact) $terra_code_id
+	\`\`\`
+EOF
+elif [ "$chain_name" = "aptos" ]; then
+  cat <<-EOF >> "$instructions_file"
+	## Build
+	\`\`\`shell
+	wormhole/aptos $ docker build -f Dockerfile --target aptos -t aptos-build .
+	\`\`\`
+
+	This command will build a docker image that can compile the contracts reproducibly.
+
+	## Verify
+	Next, run the following command to check that the contract hash matches the expected value ($address):
+
+	\`\`\`shell
+	# $module
+	wormhole/aptos$ docker run -it aptos-build
+	wormhole/aptos$ worm aptos hash-contracts /tmp/$module --named-addresses wormhole=0x5bc11445584a763c1fa7ed39081f1b920954da14e04b32440cba863d03e19625,deployer=0x0108bc32f7de18a5f6e1e7d6ee7aff9f5fc858d0d87ac0da94dd8d2a5d267d6b,token_bridge=0x576410486a2da45eee6c949c995670112ddf2fbeedab20350d506328eefc9d4f,nft_bridge=0x1bdffae984043833ed7fe223f7af7a3f8902d04129b14f801823e64827da7130
+	wormhole/aptos$ exit
 	\`\`\`
 EOF
 else
@@ -339,11 +549,10 @@ else
 fi
 
 
-
 cat <<-EOF >> "$instructions_file"
 	## Create governance
 	\`\`\`shell
-	$create_governance
+	$(create_governance)
 	\`\`\`
 
 EOF

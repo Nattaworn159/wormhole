@@ -2,17 +2,16 @@ package guardiand
 
 import (
 	"encoding/hex"
-	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"time"
-
-	"github.com/certusone/wormhole/node/pkg/vaa"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/spf13/cobra"
+	"github.com/status-im/keycard-go/hexutils"
 	"google.golang.org/protobuf/encoding/prototext"
 
+	"github.com/certusone/wormhole/node/pkg/adminrpc"
 	nodev1 "github.com/certusone/wormhole/node/pkg/proto/node/v1"
 )
 
@@ -25,12 +24,10 @@ var AdminClientGovernanceVAAVerifyCmd = &cobra.Command{
 
 func runGovernanceVAAVerify(cmd *cobra.Command, args []string) {
 	path := args[0]
-
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("failed to read file: %v", err)
 	}
-
 	var req nodev1.InjectGovernanceVAARequest
 	err = prototext.Unmarshal(b, &req)
 	if err != nil {
@@ -40,26 +37,13 @@ func runGovernanceVAAVerify(cmd *cobra.Command, args []string) {
 	timestamp := time.Unix(int64(req.Timestamp), 0)
 
 	for _, message := range req.Messages {
-		var (
-			v *vaa.VAA
-		)
-		switch payload := message.Payload.(type) {
-		case *nodev1.GovernanceMessage_GuardianSet:
-			v, err = adminGuardianSetUpdateToVAA(payload.GuardianSet, timestamp, req.CurrentSetIndex, message.Nonce, message.Sequence)
-		case *nodev1.GovernanceMessage_ContractUpgrade:
-			v, err = adminContractUpgradeToVAA(payload.ContractUpgrade, timestamp, req.CurrentSetIndex, message.Nonce, message.Sequence)
-		case *nodev1.GovernanceMessage_BridgeRegisterChain:
-			v, err = tokenBridgeRegisterChain(payload.BridgeRegisterChain, timestamp, req.CurrentSetIndex, message.Nonce, message.Sequence)
-		case *nodev1.GovernanceMessage_BridgeContractUpgrade:
-			v, err = tokenBridgeUpgradeContract(payload.BridgeContractUpgrade, timestamp, req.CurrentSetIndex, message.Nonce, message.Sequence)
-		default:
-			panic(fmt.Sprintf("unsupported VAA type: %T", payload))
-		}
+		v, err := adminrpc.GovMsgToVaa(message, req.CurrentSetIndex, timestamp)
+
 		if err != nil {
 			log.Fatalf("invalid update: %v", err)
 		}
 
-		digest := v.SigningMsg()
+		digest := v.SigningDigest().Bytes()
 		if err != nil {
 			panic(err)
 		}
@@ -71,6 +55,6 @@ func runGovernanceVAAVerify(cmd *cobra.Command, args []string) {
 
 		log.Printf("Serialized: %v", hex.EncodeToString(b))
 
-		log.Printf("VAA with digest %s: %+v", digest.Hex(), spew.Sdump(v))
+		log.Printf("VAA with digest %s: %+v", hexutils.BytesToHex(digest), spew.Sdump(v))
 	}
 }

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	publicrpcv1 "github.com/certusone/wormhole/node/pkg/proto/publicrpc/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	"github.com/spf13/cobra"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 )
 
 // How to test in container:
@@ -66,16 +66,6 @@ func runListNodes(cmd *cobra.Command, args []string) {
 
 	log.Printf("%d nodes in guardian state set", len(nodes))
 
-	// Check if any node is sending Ropsten metrics
-	var isTestnet bool
-	for _, node := range nodes {
-		for _, network := range node.RawHeartbeat.Networks {
-			if vaa.ChainID(network.Id) == vaa.ChainIDEthereumRopsten {
-				isTestnet = true
-			}
-		}
-	}
-
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
 
 	headers := []string{
@@ -95,6 +85,7 @@ func runListNodes(cmd *cobra.Command, args []string) {
 		vaa.ChainID
 	}
 
+	// NOTE: Please keep these in numerical order by chain ID.
 	networks := []network{
 		{"Solana", vaa.ChainIDSolana},
 		{"Ethereum", vaa.ChainIDEthereum},
@@ -102,22 +93,53 @@ func runListNodes(cmd *cobra.Command, args []string) {
 		{"BSC", vaa.ChainIDBSC},
 		{"Polygon", vaa.ChainIDPolygon},
 		{"Avalanche", vaa.ChainIDAvalanche},
-		{"Algorand", vaa.ChainIDAlgorand},
 		{"Oasis", vaa.ChainIDOasis},
+		{"Algorand", vaa.ChainIDAlgorand},
 		{"Aurora", vaa.ChainIDAurora},
 		{"Fantom", vaa.ChainIDFantom},
 		{"Karura", vaa.ChainIDKarura},
 		{"Acala", vaa.ChainIDAcala},
 		{"Klaytn", vaa.ChainIDKlaytn},
 		{"Celo", vaa.ChainIDCelo},
+		{"Near", vaa.ChainIDNear},
+		{"Moonbeam", vaa.ChainIDMoonbeam},
 		{"Terra2", vaa.ChainIDTerra2},
-	}
-
-	if isTestnet {
-		networks = append(networks, network{"Ropsten", vaa.ChainIDEthereumRopsten})
-		networks = append(networks, network{"Moonbeam", vaa.ChainIDMoonbeam})
-		networks = append(networks, network{"Neon", vaa.ChainIDNeon})
-		networks = append(networks, network{"Injective", vaa.ChainIDInjective})
+		{"Injective", vaa.ChainIDInjective},
+		// Osmosis is not supported in the guardian.
+		{"Sui", vaa.ChainIDSui},
+		{"Aptos", vaa.ChainIDAptos},
+		{"Arbitrum", vaa.ChainIDArbitrum},
+		{"Optimism", vaa.ChainIDOptimism},
+		// Gnosis is not supported in the guardian.
+		{"Pythnet", vaa.ChainIDPythNet},
+		{"Xpla", vaa.ChainIDXpla},
+		{"Btc", vaa.ChainIDBtc},
+		{"Base", vaa.ChainIDBase},
+		// Filecoin is not supported in the guardian.
+		{"Sei", vaa.ChainIDSei},
+		// Rootstock is not supported in the guardian.
+		{"Scroll", vaa.ChainIDScroll},
+		{"Mantle", vaa.ChainIDMantle},
+		{"Blast", vaa.ChainIDBlast},
+		{"XLayer", vaa.ChainIDXLayer},
+		{"Linea", vaa.ChainIDLinea},
+		{"Berachain", vaa.ChainIDBerachain},
+		{"SeiEVM", vaa.ChainIDSeiEVM},
+		{"Snaxchain", vaa.ChainIDSnaxchain},
+		{"Unichain", vaa.ChainIDUnichain},
+		{"Worldchain", vaa.ChainIDWorldchain},
+		{"Ink", vaa.ChainIDInk},
+		{"HyperEVM", vaa.ChainIDHyperEVM},
+		{"Monad", vaa.ChainIDMonad},
+		{"Movement", vaa.ChainIDMovement},
+		{"Wormchain", vaa.ChainIDWormchain},
+		// The IBC chains (4000 range) are not included here.
+		{"Sepolia", vaa.ChainIDSepolia},
+		{"ArbitrumSepolia", vaa.ChainIDArbitrumSepolia},
+		{"BaseSepolia", vaa.ChainIDBaseSepolia},
+		{"OptimismSepolia", vaa.ChainIDOptimismSepolia},
+		{"Holesky", vaa.ChainIDHolesky},
+		{"PolygonSepolia", vaa.ChainIDPolygonSepolia},
 	}
 
 	if len(only) > 0 {

@@ -1,16 +1,27 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { LCDClient } from "@terra-money/terra.js";
+import {
+  Commitment,
+  Connection,
+  PublicKey,
+  PublicKeyInitData,
+} from "@solana/web3.js";
+import { AptosClient, TokenTypes, Types } from "aptos";
 import { BigNumber, ethers } from "ethers";
 import { arrayify, zeroPad } from "ethers/lib/utils";
-import { canonicalAddress, WormholeWrappedInfo } from "..";
+import { OriginInfo } from "../aptos/types";
 import { TokenImplementation__factory } from "../ethers-contracts";
-import { importNftWasm } from "../solana/wasm";
+import { getWrappedMeta } from "../solana/nftBridge";
 import {
+  assertChain,
   ChainId,
   ChainName,
+  CHAIN_ID_APTOS,
   CHAIN_ID_SOLANA,
-  CHAIN_ID_TERRA,
   coalesceChainId,
+  deriveCollectionHashFromTokenId,
+  hex,
+  deriveTokenHashFromTokenId,
+  ensureHexPrefix,
+  uint8ArrayToHex,
 } from "../utils";
 import { getIsWrappedAssetEth } from "./getIsWrappedAsset";
 
@@ -24,20 +35,20 @@ export interface WormholeWrappedNFTInfo {
 
 /**
  * Returns a origin chain and asset address on {originChain} for a provided Wormhole wrapped address
- * @param tokenBridgeAddress
+ * @param nftBridgeAddress
  * @param provider
  * @param wrappedAddress
  * @returns
  */
 export async function getOriginalAssetEth(
-  tokenBridgeAddress: string,
+  nftBridgeAddress: string,
   provider: ethers.Signer | ethers.providers.Provider,
   wrappedAddress: string,
   tokenId: string,
   lookupChain: ChainId | ChainName
 ): Promise<WormholeWrappedNFTInfo> {
   const isWrapped = await getIsWrappedAssetEth(
-    tokenBridgeAddress,
+    nftBridgeAddress,
     provider,
     wrappedAddress
   );
@@ -69,55 +80,48 @@ export async function getOriginalAssetEth(
 /**
  * Returns a origin chain and asset address on {originChain} for a provided Wormhole wrapped address
  * @param connection
- * @param tokenBridgeAddress
+ * @param nftBridgeAddress
  * @param mintAddress
+ * @param [commitment]
  * @returns
  */
-export async function getOriginalAssetSol(
+export async function getOriginalAssetSolana(
   connection: Connection,
-  tokenBridgeAddress: string,
-  mintAddress: string
+  nftBridgeAddress: PublicKeyInitData,
+  mintAddress: PublicKeyInitData,
+  commitment?: Commitment
 ): Promise<WormholeWrappedNFTInfo> {
-  if (mintAddress) {
-    // TODO: share some of this with getIsWrappedAssetSol, like a getWrappedMetaAccountAddress or something
-    const { parse_wrapped_meta, wrapped_meta_address } = await importNftWasm();
-    const wrappedMetaAddress = wrapped_meta_address(
-      tokenBridgeAddress,
-      new PublicKey(mintAddress).toBytes()
-    );
-    const wrappedMetaAddressPK = new PublicKey(wrappedMetaAddress);
-    const wrappedMetaAccountInfo = await connection.getAccountInfo(
-      wrappedMetaAddressPK
-    );
-    if (wrappedMetaAccountInfo) {
-      const parsed = parse_wrapped_meta(wrappedMetaAccountInfo.data);
-      const token_id_arr = parsed.token_id as BigUint64Array;
-      const token_id_bytes = [];
-      for (let elem of token_id_arr.reverse()) {
-        token_id_bytes.push(...bigToUint8Array(elem));
-      }
-      const token_id = BigNumber.from(token_id_bytes).toString();
-      return {
-        isWrapped: true,
-        chainId: parsed.chain,
-        assetAddress: parsed.token_address,
-        tokenId: token_id,
-      };
-    }
-  }
   try {
+    const mint = new PublicKey(mintAddress);
+
+    return getWrappedMeta(connection, nftBridgeAddress, mintAddress, commitment)
+      .catch((_) => null)
+      .then((meta) => {
+        if (meta === null) {
+          return {
+            isWrapped: false,
+            chainId: CHAIN_ID_SOLANA,
+            assetAddress: mint.toBytes(),
+          };
+        } else {
+          return {
+            isWrapped: true,
+            chainId: meta.chain as ChainId,
+            assetAddress: Uint8Array.from(meta.tokenAddress),
+            tokenId: meta.tokenId.toString(),
+          };
+        }
+      });
+  } catch (_) {
     return {
       isWrapped: false,
       chainId: CHAIN_ID_SOLANA,
-      assetAddress: new PublicKey(mintAddress).toBytes(),
+      assetAddress: new Uint8Array(32),
     };
-  } catch (e) {}
-  return {
-    isWrapped: false,
-    chainId: CHAIN_ID_SOLANA,
-    assetAddress: new Uint8Array(32),
-  };
+  }
 }
+
+export const getOriginalAssetSol = getOriginalAssetSolana;
 
 // Derived from https://www.jackieli.dev/posts/bigint-to-uint8array/
 const big0 = BigInt(0);
@@ -149,32 +153,57 @@ function bigToUint8Array(big: bigint) {
   return u8;
 }
 
-export async function getOriginalAssetTerra(
-  client: LCDClient,
-  wrappedAddress: string,
-  lookupChain: ChainId | ChainName
-): Promise<WormholeWrappedInfo> {
+/**
+ * Given a token ID, returns the original asset chain and address. If this is a
+ * native asset, the asset address will be the collection hash.
+ * @param client
+ * @param nftBridgeAddress
+ * @param tokenId An object containing creator address, collection name, token
+ * name, and property version, which together uniquely identify a token on
+ * Aptos. For wrapped assets, property version will be 0.
+ * @returns Object containing origin chain and Wormhole compatible 32-byte asset
+ * address.
+ */
+export async function getOriginalAssetAptos(
+  client: AptosClient,
+  nftBridgeAddress: string,
+  tokenId: TokenTypes.TokenId
+): Promise<WormholeWrappedNFTInfo> {
   try {
-    const result: {
-      asset_address: string;
-      asset_chain: ChainId;
-      bridge: string;
-    } = await client.wasm.contractQuery(wrappedAddress, {
-      wrapped_asset_info: {},
-    });
-    if (result) {
-      return {
-        isWrapped: true,
-        chainId: result.asset_chain,
-        assetAddress: new Uint8Array(
-          Buffer.from(result.asset_address, "base64")
-        ),
-      };
+    const originInfo = (
+      await client.getAccountResource(
+        tokenId.token_data_id.creator,
+        `${nftBridgeAddress}::state::OriginInfo`
+      )
+    ).data as OriginInfo;
+    const chainId = Number(originInfo.token_chain.number);
+    assertChain(chainId);
+    return {
+      isWrapped: true,
+      chainId,
+      assetAddress:
+        chainId === CHAIN_ID_SOLANA
+          ? arrayify(BigNumber.from(hex(tokenId.token_data_id.name)))
+          : new Uint8Array(hex(originInfo.token_address.external_address)),
+      tokenId: ensureHexPrefix(hex(tokenId.token_data_id.name).toString("hex")),
+    };
+  } catch (e: any) {
+    if (
+      !(
+        (e instanceof Types.ApiError || e.errorCode === "resource_not_found") &&
+        e.status === 404
+      )
+    ) {
+      throw e;
     }
-  } catch (e) {}
+  }
+
   return {
     isWrapped: false,
-    chainId: coalesceChainId(lookupChain),
-    assetAddress: zeroPad(canonicalAddress(wrappedAddress), 32),
+    chainId: CHAIN_ID_APTOS,
+    assetAddress: await deriveCollectionHashFromTokenId(tokenId),
+    tokenId: ensureHexPrefix(
+      uint8ArrayToHex(await deriveTokenHashFromTokenId(tokenId))
+    ),
   };
 }

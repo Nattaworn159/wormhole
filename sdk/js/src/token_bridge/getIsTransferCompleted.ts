@@ -1,20 +1,29 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { JsonRpcProvider } from "@mysten/sui.js";
+import { Commitment, Connection, PublicKeyInitData } from "@solana/web3.js";
 import { LCDClient } from "@terra-money/terra.js";
+import { LCDClient as XplaLCDClient } from "@xpla/xpla.js";
 import { Algodv2, bigIntToBytes } from "algosdk";
+import { AptosClient } from "aptos";
 import axios from "axios";
 import { ethers } from "ethers";
+import { fromUint8Array } from "js-base64";
+import { Provider } from "near-api-js/lib/providers";
 import { redeemOnTerra } from ".";
-import { TERRA_REDEEMED_CHECK_WALLET_ADDRESS } from "..";
+import { TERRA_REDEEMED_CHECK_WALLET_ADDRESS, ensureHexPrefix } from "..";
 import {
   BITS_PER_KEY,
-  calcLogicSigAccount,
   MAX_BITS,
   _parseVAAAlgorand,
+  calcLogicSigAccount,
 } from "../algorand";
+import { TokenBridgeState } from "../aptos/types";
 import { getSignedVAAHash } from "../bridge";
 import { Bridge__factory } from "../ethers-contracts";
-import { importCoreWasm } from "../solana/wasm";
+import { getClaim } from "../solana/wormhole";
+import { getObjectFields, getTableKeyType } from "../sui/utils";
 import { safeBigIntToNumber } from "../utils/bigint";
+import { callFunctionNear } from "../utils/near";
+import { SignedVaa, parseVaa } from "../vaa/wormhole";
 
 export async function getIsTransferCompletedEth(
   tokenBridgeAddress: string,
@@ -22,23 +31,23 @@ export async function getIsTransferCompletedEth(
   signedVAA: Uint8Array
 ): Promise<boolean> {
   const tokenBridge = Bridge__factory.connect(tokenBridgeAddress, provider);
-  const signedVAAHash = await getSignedVAAHash(signedVAA);
+  const signedVAAHash = getSignedVAAHash(signedVAA);
   return await tokenBridge.isTransferCompleted(signedVAAHash);
 }
 
+// Note: this function is the legacy implementation for terra classic.  New
+// cosmwasm sdk functions should instead be based on
+// `getIsTransferCompletedTerra2`.
 export async function getIsTransferCompletedTerra(
   tokenBridgeAddress: string,
   signedVAA: Uint8Array,
-  client: LCDClient,
-  gasPriceUrl: string
+  client: LCDClient
 ): Promise<boolean> {
   const msg = await redeemOnTerra(
     tokenBridgeAddress,
     TERRA_REDEEMED_CHECK_WALLET_ADDRESS,
     signedVAA
   );
-  // TODO: remove gasPriceUrl and just use the client's gas prices
-  const gasPrices = await axios.get(gasPriceUrl).then((result) => result.data);
   const account = await client.auth.accountInfo(
     TERRA_REDEEMED_CHECK_WALLET_ADDRESS
   );
@@ -54,28 +63,74 @@ export async function getIsTransferCompletedTerra(
         msgs: [msg],
         memo: "already redeemed calculation",
         feeDenoms: ["uluna"],
-        gasPrices,
       }
     );
   } catch (e: any) {
     // redeemed if the VAA was already executed
-    return e.response.data.message.includes("VaaAlreadyExecuted");
+    if (e.response.data.message.includes("VaaAlreadyExecuted")) {
+      return true;
+    } else {
+      throw e;
+    }
   }
   return false;
 }
 
-export async function getIsTransferCompletedSolana(
+/**
+ * This function is used to check if a VAA has been redeemed on terra2 by
+ * querying the token bridge contract.
+ * @param tokenBridgeAddress The token bridge address (bech32)
+ * @param signedVAA The signed VAA byte array
+ * @param client The LCD client. Only used for querying, not transactions will
+ * be signed
+ */
+export async function getIsTransferCompletedTerra2(
   tokenBridgeAddress: string,
   signedVAA: Uint8Array,
-  connection: Connection
+  client: LCDClient
 ): Promise<boolean> {
-  const { claim_address } = await importCoreWasm();
-  const claimAddress = await claim_address(tokenBridgeAddress, signedVAA);
-  const claimInfo = await connection.getAccountInfo(
-    new PublicKey(claimAddress),
-    "confirmed"
+  const result: { is_redeemed: boolean } = await client.wasm.contractQuery(
+    tokenBridgeAddress,
+    {
+      is_vaa_redeemed: {
+        vaa: fromUint8Array(signedVAA),
+      },
+    }
   );
-  return !!claimInfo;
+  return result.is_redeemed;
+}
+
+export async function getIsTransferCompletedXpla(
+  tokenBridgeAddress: string,
+  signedVAA: Uint8Array,
+  client: XplaLCDClient
+): Promise<boolean> {
+  const result: { is_redeemed: boolean } = await client.wasm.contractQuery(
+    tokenBridgeAddress,
+    {
+      is_vaa_redeemed: {
+        vaa: fromUint8Array(signedVAA),
+      },
+    }
+  );
+  return result.is_redeemed;
+}
+
+export async function getIsTransferCompletedSolana(
+  tokenBridgeAddress: PublicKeyInitData,
+  signedVAA: SignedVaa,
+  connection: Connection,
+  commitment?: Commitment
+): Promise<boolean> {
+  const parsed = parseVaa(signedVAA);
+  return getClaim(
+    connection,
+    tokenBridgeAddress,
+    parsed.emitterAddress,
+    parsed.emitterChain,
+    parsed.sequence,
+    commitment
+  ).catch((e) => false);
 }
 
 // Algorand
@@ -134,7 +189,6 @@ async function checkBitsSet(
  * @param client AlgodV2 client
  * @param appId Most likely the Token bridge ID
  * @param signedVAA VAA to check
- * @param wallet The account paying the bill for this (it isn't free)
  * @returns true if VAA has been redeemed, false otherwise
  */
 export async function getIsTransferCompletedAlgorand(
@@ -158,4 +212,101 @@ export async function getIsTransferCompletedAlgorand(
   const seqAddr = lsa.address();
   const retVal: boolean = await checkBitsSet(client, appId, seqAddr, seq);
   return retVal;
+}
+
+export async function getIsTransferCompletedNear(
+  provider: Provider,
+  tokenBridge: string,
+  signedVAA: Uint8Array
+): Promise<boolean> {
+  const vaa = Buffer.from(signedVAA).toString("hex");
+  return (
+    await callFunctionNear(provider, tokenBridge, "is_transfer_completed", {
+      vaa,
+    })
+  )[1];
+}
+
+/**
+ * Determine whether or not the transfer in the given VAA has completed on Aptos.
+ * @param client Client used to transfer data to/from Aptos node
+ * @param tokenBridgeAddress Address of token bridge
+ * @param transferVAA Bytes of transfer VAA
+ * @returns True if transfer is completed
+ */
+export async function getIsTransferCompletedAptos(
+  client: AptosClient,
+  tokenBridgeAddress: string,
+  transferVAA: Uint8Array
+): Promise<boolean> {
+  // get handle
+  tokenBridgeAddress = ensureHexPrefix(tokenBridgeAddress);
+  const state = (
+    await client.getAccountResource(
+      tokenBridgeAddress,
+      `${tokenBridgeAddress}::state::State`
+    )
+  ).data as TokenBridgeState;
+  const handle = state.consumed_vaas.elems.handle;
+
+  // check if vaa hash is in consumed_vaas
+  const transferVAAHash = getSignedVAAHash(transferVAA);
+  try {
+    // when accessing Set<T>, key is type T and value is 0
+    await client.getTableItem(handle, {
+      key_type: "vector<u8>",
+      value_type: "u8",
+      key: transferVAAHash,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getIsTransferCompletedSui(
+  provider: JsonRpcProvider,
+  tokenBridgeStateObjectId: string,
+  transferVAA: Uint8Array
+): Promise<boolean> {
+  const tokenBridgeStateFields = await getObjectFields(
+    provider,
+    tokenBridgeStateObjectId
+  );
+  if (!tokenBridgeStateFields) {
+    throw new Error("Unable to fetch object fields from token bridge state");
+  }
+
+  const hashes = tokenBridgeStateFields.consumed_vaas?.fields?.hashes;
+  const tableObjectId = hashes?.fields?.items?.fields?.id?.id;
+  if (!tableObjectId) {
+    throw new Error("Unable to fetch consumed VAAs table");
+  }
+
+  const keyType = getTableKeyType(hashes?.fields?.items?.type);
+  if (!keyType) {
+    throw new Error("Unable to get key type");
+  }
+
+  const hash = getSignedVAAHash(transferVAA);
+  const response = await provider.getDynamicFieldObject({
+    parentId: tableObjectId,
+    name: {
+      type: keyType,
+      value: {
+        data: [...Buffer.from(hash.slice(2), "hex")],
+      },
+    },
+  });
+  if (!response.error) {
+    return true;
+  }
+
+  if (response.error.code === "dynamicFieldNotFound") {
+    return false;
+  }
+
+  throw new Error(
+    `Unexpected getDynamicFieldObject response ${response.error}`
+  );
 }

@@ -1,4 +1,4 @@
-SOURCE_FILES:=$(shell find . -name "*.ts" -not -path "./node_modules/*")
+SOURCE_FILES:=$(shell find . -type d -name node_modules -prune -o -name "*.ts")
 
 .PHONY: all
 all: build
@@ -22,7 +22,15 @@ install: build
 
 .PHONY: test
 test: build
+# This first invocation will set up the initial config, so that the warning
+# doesn't show up in the tests
+	npm run check
+	npm test
+	node build/main.js --version > /dev/null
 	./run_parse_tests
+
+docs:
+	npm run docs
 
 clean:
 	rm -rf build node_modules

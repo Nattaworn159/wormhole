@@ -1,4 +1,4 @@
-// contracts/Getters.sol
+// contracts/NFTBridgeGetters.sol
 // SPDX-License-Identifier: Apache 2
 
 pragma solidity ^0.8.0;
@@ -28,6 +28,14 @@ contract NFTBridgeGetters is NFTBridgeState {
 
     function chainId() public view returns (uint16){
         return _state.provider.chainId;
+    }
+
+    function evmChainId() public view returns (uint256) {
+        return _state.evmChainId;
+    }
+
+    function isFork() public view returns (bool) {
+        return evmChainId() != block.chainid;
     }
 
     function governanceChainId() public view returns (uint16){

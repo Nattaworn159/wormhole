@@ -16,8 +16,8 @@ use solana_program::{
 };
 use solana_program_test::{
     BanksClient,
-    ProgramTest,
     BanksClientError,
+    ProgramTest,
 };
 use solana_sdk::{
     commitment_config::CommitmentLevel,
@@ -69,8 +69,8 @@ pub async fn execute<T: Signers>(
 }
 
 mod helpers {
-    use solana_program_test::processor;
     use super::*;
+    use solana_program_test::processor;
 
     /// Initialize the test environment, spins up a solana-test-validator in the background so that
     /// each test has a fresh environment to work within.
@@ -79,30 +79,11 @@ mod helpers {
             .unwrap_or_else(|_| "Bridge1p5gheXUvJ6jGWGeCsgPKgnE3YgdGKRVCMY9o".to_string())
             .parse::<Pubkey>()
             .unwrap();
-        let builder = ProgramTest::new(
-            "bridge",
-            program,
-            processor!(instruction::solitaire),
-        );
+        let builder = ProgramTest::new("bridge", program, processor!(instruction::solitaire));
 
         let (client, payer, _) = builder.start().await;
 
         (client, payer, program)
-    }
-
-    /// Wait for a single transaction to fully finalize, guaranteeing chain state has been
-    /// confirmed. Useful for consistently fetching data during state checks.
-    pub async fn sync(client: &mut BanksClient, payer: &Keypair) {
-        let payer_key = payer.pubkey();
-        execute(
-            client,
-            payer,
-            &[payer],
-            &[system_instruction::transfer(&payer_key, &payer_key, 1)],
-            CommitmentLevel::Confirmed,
-        )
-        .await
-        .unwrap();
     }
 
     /// Fetch account data, the loop is there to re-attempt until data is available.
@@ -226,6 +207,7 @@ mod helpers {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn post_message(
         client: &mut BanksClient,
         program: &Pubkey,
@@ -244,7 +226,7 @@ mod helpers {
 
         let message: &Keypair = match message {
             Some(keypair) => keypair,
-            None => new_message_pair
+            None => new_message_pair,
         };
 
         // Capture the resulting message, later functions will need this.
@@ -262,7 +244,7 @@ mod helpers {
         execute(
             client,
             payer,
-            &[payer, emitter, &message],
+            &[payer, emitter, message],
             &[
                 system_instruction::transfer(&payer.pubkey(), &fee_collector, fee),
                 instruction,
@@ -274,6 +256,7 @@ mod helpers {
         Ok(message.pubkey())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn post_message_unreliable(
         client: &mut BanksClient,
         program: &Pubkey,
@@ -302,7 +285,7 @@ mod helpers {
         execute(
             client,
             payer,
-            &[payer, emitter, &message],
+            &[payer, emitter, message],
             &[
                 system_instruction::transfer(&payer.pubkey(), &fee_collector, fee),
                 instruction,

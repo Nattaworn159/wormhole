@@ -81,12 +81,12 @@ impl<'b> RedeemerAccount<'b> {
     /// "redeemer".
     ///
     /// That is, the redeemer account either matches the `vaa.to` field directly
-    /// (user wallets), or is a PDA derived from vaa.to and "sender" (contracts).
+    /// (user wallets), or is a PDA derived from vaa.to and "redeemer" (contracts).
     ///
-    /// The `vaa.to` account must own the token account.
+    /// The `redeemer` account must own the token account in case of contracts.
     fn verify_recipient_address(&self, recipient: &Pubkey) -> Result<()> {
         if recipient == self.info().key {
-            return Ok(());
+            Ok(())
         } else {
             self.verify_derivation(recipient, ())
         }

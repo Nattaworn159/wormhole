@@ -25,9 +25,17 @@ yarn-error.log*
 # ethereum contracts
 /contracts
 /src/ethers-contracts
+/src/ethers-relayer-contracts
 
 # tsproto output
 /src/proto
 
 # build
 /lib
+
+# solana idl
+/src/anchor-idl
+/src/solana/types
+
+# docs
+/docs

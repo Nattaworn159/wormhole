@@ -6,12 +6,12 @@ import (
 	"strconv"
 
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	"github.com/certusone/wormhole/node/pkg/version"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 )
 
 var (
@@ -41,13 +41,13 @@ func collectNodeMetrics(addr common.Address, peerId peer.ID, hb *gossipv1.Heartb
 		chain := vaa.ChainID(n.Id)
 
 		wormholeNetworkNodeHeight.WithLabelValues(
-			addr.Hex(), peerId.Pretty(), hb.NodeName, chain.String()).Set(float64(n.Height))
+			addr.Hex(), peerId.String(), hb.NodeName, chain.String()).Set(float64(n.Height))
 
 		wormholeNetworkNodeErrors.WithLabelValues(
-			addr.Hex(), peerId.Pretty(), hb.NodeName, chain.String()).Set(float64(n.ErrorCount))
+			addr.Hex(), peerId.String(), hb.NodeName, chain.String()).Set(float64(n.ErrorCount))
 
 		wormholeNetworkVersion.WithLabelValues(
-			addr.Hex(), peerId.Pretty(), hb.NodeName, chain.String(),
+			addr.Hex(), peerId.String(), hb.NodeName, chain.String(),
 			sanitizeVersion(hb.Version, version.Version())).Set(1)
 	}
 }

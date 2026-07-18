@@ -25,13 +25,13 @@ The mitigation for this is a polling control loop in the case of Solana or chain
 node will consistently poll for unprocessed observations, resulting in re-observation by nodes and another round of
 consensus. During chain replay, nodes will re-process events from connected chains up from a given block height, check
 whether a VAA has already been submitted to Solana, and initiate a round of consensus for missed observations.
- 
+
 This carries no risk and can be done any number of times. VAAs are fully deterministic and idempotent - any
 given observation will always result in the same VAA body hash. All connected chains keep a permanent record
 of whether a given VAA body - identified by its hash - has already been executed, therefore, VAAs can safely
 undergo multiple rounds of consensus until they are executed on all chains.
 
-The bridge does not yet implement chain replay (see https://github.com/certusone/wormhole/issues/123). Network outages
+The bridge does not yet implement chain replay (see https://github.com/wormhole-foundation/wormhole/issues/123). Network outages
 can therefore result in missed observations from chains other than Solana in the case of a prolonged network outage. It
 will be possible to retroactively replay blocks after chain replay has been implemented to catch up on missed events.
 
@@ -59,7 +59,7 @@ Wormhole contracts charge in excess of the (very cheap) transaction fee, but a s
 still execute a sustained attack by simply paying said fee.
 
 A possible future improvement would be dynamic fees on the Solana side, but this is currently blocked by runtime
-limitations (see https://github.com/certusone/wormhole/issues/125). Even with dynamic fees, raising the fees beyond the
+limitations (see https://github.com/wormhole-foundation/wormhole/issues/125). Even with dynamic fees, raising the fees beyond the
 amount that a reasonable user would pay may already constitute a successful attack against the protocol.
 
 DDoS attacks on decentralized protocols are a tricky thing in general, and mostly a matter of game theory/incentives.
@@ -75,7 +75,7 @@ strongly align with the Solana ecosystem - large token holders, ecosystem projec
 would risk damage to their reputation, token values, and ecosystem growth by attacking the network or neglecting their
 duties.
 
-We assume that at the present time, such incentive alignment is easy to bootstrap and get right than a separate chain,
+We assume that, at the present time, such incentive alignment is easier to bootstrap and get right than a separate chain,
 which requires carefully-designed token economy and slashing criteria. In particular, it attracts operators who care
 about the ecosystem beyond short-term validation rewards, resulting in a high-quality, resilient guardian set.
 
@@ -120,10 +120,9 @@ known for its robustness - and go-ethereum, both of which have been exhaustively
 
 ## Safe handling of crashes in the Solana eBPF VM
 
-Due to the instruction count limitations in the Solana runtime, the Solana contracts makes liberal use of unsafe blocks
+Due to the instruction count limitations in the Solana runtime, the Solana contracts make liberal use of unsafe blocks
 to serialize and deserialize data without incurring the overhead of a memory-safe approach.
 
 This follows current best practices for Solana contract development. It assumes that invalid operations or out-of-bounds
 accesses will always cause a crash and be caught by the bytecode interpreter, and safely halt contract execution like
 any other error during contract execution would.
-

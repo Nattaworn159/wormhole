@@ -1,2 +1,7 @@
 const copydir = require("copy-dir");
-copydir.sync("../../ethereum/build/contracts", "./contracts");
+console.log("Copying from ../../ethereum/ethers-contracts");
+copydir.sync("../../ethereum/ethers-contracts", "src/ethers-contracts");
+copydir.sync(
+  "../../relayer/ethereum/ethers-contracts",
+  "src/ethers-relayer-contracts"
+);

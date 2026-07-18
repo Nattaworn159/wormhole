@@ -9,7 +9,7 @@ import (
 	"github.com/certusone/wormhole/node/pkg/db"
 	"github.com/certusone/wormhole/node/pkg/governor"
 	publicrpcv1 "github.com/certusone/wormhole/node/pkg/proto/publicrpc/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -54,7 +54,7 @@ func (s *PublicrpcServer) GetLastHeartbeats(ctx context.Context, req *publicrpcv
 		for peerId, hb := range v {
 			resp.Entries = append(resp.Entries, &publicrpcv1.GetLastHeartbeatsResponse_Entry{
 				VerifiedGuardianAddr: addr.Hex(),
-				P2PNodeAddr:          peerId.Pretty(),
+				P2PNodeAddr:          peerId.String(),
 				RawHeartbeat:         hb,
 			})
 		}
@@ -66,6 +66,13 @@ func (s *PublicrpcServer) GetLastHeartbeats(ctx context.Context, req *publicrpcv
 func (s *PublicrpcServer) GetSignedVAA(ctx context.Context, req *publicrpcv1.GetSignedVAARequest) (*publicrpcv1.GetSignedVAAResponse, error) {
 	if req.MessageId == nil {
 		return nil, status.Error(codes.InvalidArgument, "no message ID specified")
+	}
+
+	chainID := vaa.ChainID(req.MessageId.EmitterChain.Number())
+
+	// This interface is not supported for PythNet messages because those VAAs are not stored in the database.
+	if chainID == vaa.ChainIDPythNet {
+		return nil, status.Error(codes.InvalidArgument, "not supported for PythNet")
 	}
 
 	address, err := hex.DecodeString(req.MessageId.EmitterAddress)
@@ -80,7 +87,7 @@ func (s *PublicrpcServer) GetSignedVAA(ctx context.Context, req *publicrpcv1.Get
 	copy(addr[:], address)
 
 	b, err := s.db.GetSignedVAABytes(db.VAAID{
-		EmitterChain:   vaa.ChainID(req.MessageId.EmitterChain.Number()),
+		EmitterChain:   chainID,
 		EmitterAddress: addr,
 		Sequence:       req.MessageId.Sequence,
 	})
@@ -144,6 +151,10 @@ func (s *PublicrpcServer) GovernorGetEnqueuedVAAs(ctx context.Context, req *publ
 
 func (s *PublicrpcServer) GovernorIsVAAEnqueued(ctx context.Context, req *publicrpcv1.GovernorIsVAAEnqueuedRequest) (*publicrpcv1.GovernorIsVAAEnqueuedResponse, error) {
 	resp := &publicrpcv1.GovernorIsVAAEnqueuedResponse{}
+
+	if req.MessageId == nil {
+		return nil, status.Error(codes.InvalidArgument, "no message ID specified")
+	}
 
 	if s.gov != nil {
 		var err error

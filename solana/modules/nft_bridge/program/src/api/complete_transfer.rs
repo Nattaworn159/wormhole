@@ -134,7 +134,7 @@ pub fn complete_native(
             return Err(InvalidAssociatedAccount.into());
         }
         // Create associated token account
-        let ix = spl_associated_token_account::create_associated_token_account(
+        let ix = spl_associated_token_account::instruction::create_associated_token_account(
             accs.payer.info().key,
             accs.to_authority.info().key,
             accs.mint.info().key,
@@ -267,7 +267,7 @@ pub fn complete_wrapped(
             return Err(InvalidAssociatedAccount.into());
         }
         // Create associated token account
-        let ix = spl_associated_token_account::create_associated_token_account(
+        let ix = spl_associated_token_account::instruction::create_associated_token_account(
             accs.payer.info().key,
             accs.to_authority.info().key,
             accs.mint.info().key,
@@ -382,7 +382,7 @@ pub fn complete_wrapped_meta(
     symbol.retain(|&c| c != '\u{FFFD}');
     let symbol: String = symbol.iter().collect();
 
-    let spl_token_metadata_ix = spl_token_metadata::instruction::create_metadata_accounts(
+    let spl_token_metadata_ix = spl_token_metadata::instruction::create_metadata_accounts_v3(
         spl_token_metadata::id(),
         *accs.spl_metadata.key,
         *accs.mint.info().key,
@@ -396,6 +396,9 @@ pub fn complete_wrapped_meta(
         0,
         false,
         true,
+        None,
+        None,
+        None,
     );
     invoke_seeded(&spl_token_metadata_ix, ctx, &accs.mint_authority, None)?;
 

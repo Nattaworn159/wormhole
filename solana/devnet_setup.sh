@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # This script configures the devnet for test transfers with hardcoded addresses.
-set -xu
+set -eu
 
 # Configure CLI (works the same as upstream Solana CLI)
 mkdir -p ~/.config/solana/cli
@@ -25,6 +25,11 @@ cat <<EOF > nft2.json
 [40,74,92,250,81,56,202,67,129,124,193,219,24,161,198,98,191,214,136,7,112,26,72,17,33,249,24,225,183,237,27,216,11,179,26,170,82,220,3,253,152,185,151,186,12,21,138,161,175,46,180,3,167,165,70,51,128,45,237,143,146,49,34,180]
 EOF
 
+# Static key for the 3nd NFT mint so it always has the same address
+cat <<EOF > nft3.json
+[237,91,99,59,171,108,222,79,145,161,183,11,19,47,174,103,92,35,34,136,123,190,169,63,107,117,190,109,0,240,233,8,139,177,114,106,66,109,185,216,58,55,83,115,160,194,236,49,7,252,13,189,79,81,65,124,113,183,96,26,14,98,166,118]
+EOF
+
 # Constants
 cli_address=6sbzC1eH4FTujJXWj51eQe25cYvr4xfXbJ1vAj7j2k5J
 bridge_address=Bridge1p5gheXUvJ6jGWGeCsgPKgnE3YgdGKRVCMY9o
@@ -32,6 +37,7 @@ nft_bridge_address=NFTWqJR8YnRVqPDvTJrYuLrQDitTG5AScqbeghi4zSA
 token_bridge_address=B6RHG3mfcckmrYN1UhmJzyS1XX3fZKbkeUcpJe9Sy3FE
 recipient_address=90F8bf6A479f320ead074411a4B0e7944Ea8c9C1
 chain_id_ethereum=2
+account2=7HrnXGAzG6mV93Lumk7yfyrNk2bpstq8YyesqojLj8mG
 
 # load the .env file with the devent init data
 source .env
@@ -44,6 +50,9 @@ retry () {
 
 # Fund our account (as defined in solana/keys/solana-devnet.json).
 retry solana airdrop 1000
+
+# Fund our second account
+solana airdrop 1000 "$account2"
 
 # Create a new SPL token
 token=$(spl-token create-token -- token.json | grep 'Creating token' | awk '{ print $3 }')
@@ -83,6 +92,20 @@ spl-token mint "$nft" 1 "$nft_account"
 
 token-bridge-client create-meta "$nft" "Not a PUNK 2🎸" "PUNK2🎸" "https://wrappedpunks.com:3000/api/punks/metadata/51"
 
+# Create a new SPL NFT
+nft=$(spl-token create-token --decimals 0 -- nft3.json | grep 'Creating token' | awk '{ print $3 }')
+echo "Created NFT $nft"
+
+# Create NFT account
+nft_account=$(spl-token create-account --owner "$account2" "$nft" | grep 'Creating account' | awk '{ print $3 }')
+echo "Created NFT account $nft_account"
+
+# Mint new NFT owned by our second account
+spl-token mint "$nft" 1 "$nft_account"
+
+# Create meta for token
+token-bridge-client create-meta "$nft" "Not a PUNK3🎸" "PUNK3🎸" "https://wrappedpunks.com:3000/api/punks/metadata/69"
+
 # Create the bridge contract at a known address
 # OK to fail on subsequent attempts (already created).
 retry client create-bridge "$bridge_address" "$INIT_SIGNERS_CSV" 86400 100
@@ -92,19 +115,31 @@ retry token-bridge-client create-bridge "$token_bridge_address" "$bridge_address
 # Initialize the NFT bridge
 retry token-bridge-client create-bridge "$nft_bridge_address" "$bridge_address"
 
-# pass the chain registration VAAs sourced from .env to the client's execute-governance command:
-pushd /usr/src/clients/js
-make build
-# Register the Token Bridge Endpoint on ETH
-node build/main.js submit -c solana -n devnet "$REGISTER_ETH_TOKEN_BRIDGE_VAA"
-node build/main.js submit -c solana -n devnet "$REGISTER_TERRA_TOKEN_BRIDGE_VAA"
-node build/main.js submit -c solana -n devnet "$REGISTER_BSC_TOKEN_BRIDGE_VAA"
-node build/main.js submit -c solana -n devnet "$REGISTER_ALGO_TOKEN_BRIDGE_VAA"
-node build/main.js submit -c solana -n devnet "$REGISTER_TERRA2_TOKEN_BRIDGE_VAA"
-# Register the NFT Bridge Endpoint on ETH
-node build/main.js submit -c solana -n devnet "$REGISTER_ETH_NFT_BRIDGE_VAA"
-node build/main.js submit -c solana -n devnet "$REGISTER_TERRA_NFT_BRIDGE_VAA"
-popd
+# next we get all the registration VAAs from the environment
+# if a new VAA is added, this will automatically pick it up
+VAAS=$(set | grep "REGISTER_.*_VAA" | grep -v SOL | cut -d '=' -f1)
+
+# reset the builtin SECONDS timer (it's incremented once a second).
+SECONDS=0
+
+# use 'worm' to submit each registration VAA
+echo "Running chain registrations in parallel"
+# we'll send the registration calls in parallel, but we want to wait on them at
+# the end, so we collect the PIDs
+registration_pids=()
+for VAA in $VAAS
+do
+    VAA=${!VAA}
+    worm submit $VAA --chain solana --network devnet &
+    registration_pids+=( $! )
+done
+
+# wait on registration calls
+for pid in "${registration_pids[@]}"; do
+        wait $pid
+done
+
+echo "Registrations successfully completed in $SECONDS seconds."
 
 # Let k8s startup probe succeed
 nc -k -l -p 2000

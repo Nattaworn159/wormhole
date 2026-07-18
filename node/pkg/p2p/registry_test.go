@@ -6,22 +6,15 @@ import (
 	"testing"
 
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	"github.com/mr-tron/base58"
 	"github.com/stretchr/testify/assert"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 )
 
 func TestNewRegistry(t *testing.T) {
 	registry := NewRegistry()
-	assert.Equal(t, "", registry.guardianAddress)
 	assert.Equal(t, 0, len(registry.errorCounters))
 	assert.Equal(t, 0, len(registry.networkStats))
-}
-
-func TestSetGuardianAddress(t *testing.T) {
-	registry := NewRegistry()
-	registry.SetGuardianAddress("foo")
-	assert.Equal(t, "foo", registry.guardianAddress)
 }
 
 func TestSetNetworkStats(t *testing.T) {

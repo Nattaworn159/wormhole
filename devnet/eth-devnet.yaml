@@ -31,15 +31,19 @@ spec:
     spec:
       terminationGracePeriodSeconds: 1
       containers:
-        - name: ganache
+        - name: anvil
           image: eth-node
+          # This command generates additional accounts compared to the default of 10. The purpose is to use dedicated
+          # accounts for different aspects of the test suite. When adding new integration tests, consider increasing
+          # the number of accounts below and using a fresh key for the new tests.
           command:
-            - npx
-            - ganache-cli
-            - -e 10000
-            - --deterministic
-            - --time="1970-01-01T00:00:00+00:00"
+            - anvil
+            - --silent
+            - --mnemonic=myth like bonus scare over problem client lizard pioneer submit female collect
+            - --block-time=1
             - --host=0.0.0.0
+            - --accounts=14
+            - --chain-id=1337
           ports:
             - containerPort: 8545
               name: rpc
@@ -53,17 +57,12 @@ spec:
           command:
             - /bin/sh
             - -c
-            - "npm run migrate && npx truffle exec scripts/deploy_test_token.js && npm run deploy-batched-vaa-sender && npx truffle exec scripts/register_solana_chain.js && npx truffle exec scripts/register_terra_chain.js && npx truffle exec scripts/register_terra2_chain.js && npx truffle exec scripts/register_bsc_chain.js && npx truffle exec scripts/register_algo_chain.js && nc -lkp 2000 0.0.0.0"
+            - "cd ../../ethereum && CHAIN_ID=2 NETWORK=devnet ./sh/devnetInitialization.sh && cd ../relayer/ethereum && npm run deploy-relayers-evm1 && nc -lkn 2000"
           readinessProbe:
             periodSeconds: 1
             failureThreshold: 300
+            initialDelaySeconds: 90
             tcpSocket:
               port: 2000
-        - name: mine
-          image: eth-node
-          command:
-            - /bin/sh
-            - -c
-            - "npx truffle exec mine.js"
 ---
 

@@ -1,7 +1,15 @@
 # Wormhole CLI
 
 This tool is a command line interface to Wormhole.
+
 ## Installation
+
+Pull down the repo if you don't already have it and cd to the appropriate directory:
+
+    git clone https://github.com/wormhole-foundation/wormhole
+    cd wormhole/clients/js
+
+Build and install the cli tool:
 
     make install
 
@@ -12,35 +20,359 @@ private keys, based on `.env.sample` in this folder.
 
 ## Usage
 
-``` sh
-worm [command]
+```sh
+worm <command>
 
 Commands:
-  worm generate                             generate VAAs (devnet and testnet
-                                            only)
-  worm parse <vaa>                          Parse a VAA (can be in either hex or
-                                            base64 format)
-  worm recover <digest> <signature>         Recover an address from a signature
-  worm contract <network> <chain> <module>  Print contract address
-  worm rpc <network> <chain>                Print RPC address
-  worm evm                                  EVM utilites
-  worm submit <vaa>                         Execute a VAA
+  worm aptos                         Aptos utilities
+  worm edit-vaa                      Edits or generates a VAA
+  worm evm                           EVM utilities
+  worm generate                      generate VAAs (devnet and testnet only)
+  worm info                          Contract, chain, rpc and address information utilities
+  worm near                          NEAR utilities
+  worm parse <vaa>                   Parse a VAA (can be in either hex or base64
+                                      format)
+  worm recover <digest> <signature>  Recover an address from a signature
+  worm submit <vaa>                  Execute a VAA
+  worm sui                           Sui utilities
+  worm verify-vaa                    Verifies a VAA by querying the core contract on Ethereum
 
 Options:
   --help     Show help                                                 [boolean]
   --version  Show version number                                       [boolean]
 ```
 
- Consult the `--help` flag for using subcommands.
+### Subcommands
 
- ### VAA generation
+<!--CLI_USAGE-->
+<details>
+<summary> aptos </summary>
 
- Use `generate` to create VAAs for testing. For example, to create an NFT bridge registration VAA:
+```sh
+worm aptos <command>
 
-``` sh
+Commands:
+  worm aptos init-token-bridge              Init token bridge contract
+  worm aptos init-wormhole                  Init Wormhole core contract
+  worm aptos deploy <package-dir>           Deploy an Aptos package
+  worm aptos deploy-resource <seed>         Deploy an Aptos package using a
+  <package-dir>                             resource account
+  worm aptos send-example-message           Send example message
+  <message>
+  worm aptos derive-resource-account        Derive resource account address
+  <account> <seed>
+  worm aptos derive-wrapped-address         Derive wrapped coin type
+  <chain> <origin-address>
+  worm aptos hash-contracts <package-dir>   Hash contract bytecodes for upgrade
+  worm aptos upgrade <package-dir>          Perform upgrade after VAA has been
+                                            submitted
+  worm aptos migrate                        Perform migration after contract
+                                            upgrade
+  worm aptos faucet                         Request money from the faucet for a
+                                            given account
+  worm aptos start-validator                Start a local aptos validator
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+
+<details>
+<summary> chains </summary>
+
+```sh
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+
+<details>
+<summary> edit-vaa </summary>
+
+```sh
+Options:
+      --help                       Show help                           [boolean]
+      --version                    Show version number                 [boolean]
+  -v, --vaa                        vaa in hex format         [string] [required]
+  -n, --network                    Network
+                            [required] [choices: "mainnet", "testnet", "devnet"]
+      --guardian-set-index, --gsi  guardian set index                   [number]
+      --signatures, --sigs         comma separated list of signatures   [string]
+      --wormscanurl, --wsu         url to wormscan entry for the vaa that
+                                   includes signatures                  [string]
+      --wormscan, --ws             if specified, will query the wormscan entry
+                                   for the vaa to get the signatures   [boolean]
+      --emitter-chain-id, --ec     emitter chain id to be used in the vaa
+                                                                        [number]
+      --emitter-address, --ea      emitter address to be used in the vaa[string]
+      --nonce, --no                nonce to be used in the vaa          [number]
+      --sequence, --seq            sequence number to be used in the vaa[string]
+      --consistency-level, --cl    consistency level to be used in the vaa
+                                                                        [number]
+      --timestamp, --ts            timestamp to be used in the vaa in unix
+                                   seconds                              [number]
+  -p, --payload                    payload in hex format                [string]
+      --guardian-secret, --gs      Guardian's secret key                [string]
+```
+</details>
+
+<details>
+<summary> evm </summary>
+
+```sh
+worm evm <command>
+
+Commands:
+  worm evm address-from-secret <secret>  Compute a 20 byte eth address from a 32
+                                         byte private key
+  worm evm storage-update                Update a storage slot on an EVM fork
+                                         during testing (anvil or hardhat)
+  worm evm chains                        Return all EVM chains
+  worm evm info                          Query info about the on-chain state of
+                                         the contract
+  worm evm hijack                        Override the guardian set of the core
+                                         bridge contract during testing (anvil
+                                         or hardhat)
+  worm evm start-validator               Start a local EVM validator
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+  --rpc      RPC endpoint                                               [string]
+```
+</details>
+
+<details>
+<summary> generate </summary>
+
+```sh
+worm generate [command]
+
+Commands:
+  worm generate registration                Generate registration VAA
+  worm generate upgrade                     Generate contract upgrade VAA
+  worm generate attestation                 Generate a token attestation VAA
+  worm generate recover-chain-id            Generate a recover chain ID VAA
+  worm generate                             Sets the default delivery provider
+  set-default-delivery-provider             for the Wormhole Relayer contract
+
+Options:
+      --help             Show help                                     [boolean]
+      --version          Show version number                           [boolean]
+  -g, --guardian-secret  Guardians' secret keys (CSV)        [string] [required]
+```
+</details>
+
+<details>
+<summary> info </summary>
+
+```sh
+worm info [command]
+
+Commands:
+  worm info chain-id <chain>                Print the wormhole chain ID integer
+                                            associated with the specified chain
+                                            name
+  worm info contract <network> <chain>      Print contract address
+  <module>
+  worm info emitter <chain> <address>       Print address in emitter address
+                                            format
+  worm info origin <chain> <address>        Print the origin chain and address
+                                            of the asset that corresponds to the
+                                            given chain and address.
+  worm info registrations <network>         Print chain registrations
+  <chain> <module>
+  worm info rpc <network> <chain>           Print RPC address
+  worm info wrapped <origin-chain>          Print the wrapped address on the
+  <origin-address> <target-chain>           target chain that corresponds with
+                                            the specified origin chain and
+                                            address.
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+
+<details>
+<summary> near </summary>
+
+```sh
+worm near [command]
+
+Commands:
+  worm near contract-update <file>  Submit a contract update using our specific
+                                    APIs
+  worm near deploy <file>           Submit a contract update using near APIs
+
+Options:
+      --help      Show help                                            [boolean]
+      --version   Show version number                                  [boolean]
+  -m, --module    Module to query  [choices: "Core", "NFTBridge", "TokenBridge"]
+  -n, --network   Network   [required] [choices: "mainnet", "testnet", "devnet"]
+      --account   Near deployment account                    [string] [required]
+      --attach    Attach some near                                      [string]
+      --target    Near account to upgrade                               [string]
+      --mnemonic  Near private keys                                     [string]
+      --key       Near private key                                      [string]
+  -r, --rpc       Override default rpc endpoint url                     [string]
+```
+</details>
+
+<details>
+<summary> parse <vaa> </summary>
+
+```sh
+Positionals:
+  vaa  vaa                                                              [string]
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+
+<details>
+<summary> recover <digest> <signature> </summary>
+
+```sh
+Positionals:
+  digest     digest                                                     [string]
+  signature  signature                                                  [string]
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+
+<details>
+<summary> submit <vaa> </summary>
+
+```sh
+Positionals:
+  vaa  vaa                                                              [string]
+
+Options:
+      --help              Show help                                    [boolean]
+      --version           Show version number                          [boolean]
+  -c, --chain             chain name. To see a list of supported chains, run
+                          `worm chains`                                 [string]
+  -n, --network           Network
+                            [required] [choices: "mainnet", "testnet", "devnet"]
+  -a, --contract-address  Contract to submit VAA to (override config)   [string]
+      --rpc               RPC endpoint                                  [string]
+      --all-chains, --ac  Submit the VAA to all chains except for the origin
+                          chain specified in the payload
+                                                      [boolean] [default: false]
+```
+</details>
+
+<details>
+<summary> sui </summary>
+
+```sh
+worm sui <command>
+
+Commands:
+  worm sui build-coin                    Build wrapped coin and dump bytecode.
+
+                                         Example:
+                                         worm sui build-coin -d 8 -v V__0_1_1 -n
+                                         testnet -r
+                                         "https://fullnode.testnet.sui.io:443"
+  worm sui deploy <package-dir>          Deploy a Sui package
+  worm sui init-example-message-app      Initialize example core message app
+  worm sui init-token-bridge             Initialize token bridge contract
+  worm sui init-wormhole                 Initialize wormhole core contract
+  worm sui publish-example-message       Publish message from example app via
+                                         core bridge
+  worm sui setup-devnet                  Setup devnet by deploying and
+                                         initializing core and token bridges and
+                                         submitting chain registrations.
+  worm sui objects <owner>               Get owned objects by owner
+  worm sui package-id <state-object-id>  Get package ID from State object ID
+  worm sui tx <transaction-digest>       Get transaction details
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+
+<details>
+<summary> transfer </summary>
+
+```sh
+Options:
+      --help        Show help                                          [boolean]
+      --version     Show version number                                [boolean]
+      --src-chain   source chain. To see a list of supported chains, run `worm
+                    chains`                                  [string] [required]
+      --dst-chain   destination chain. To see a list of supported chains, run
+                    `worm chains`                            [string] [required]
+      --dst-addr    destination address                      [string] [required]
+      --token-addr  token address               [string] [default: native token]
+      --amount      token amount                             [string] [required]
+  -n, --network     Network [required] [choices: "mainnet", "testnet", "devnet"]
+      --rpc         RPC endpoint                                        [string]
+```
+</details>
+
+<details>
+<summary> verify-vaa </summary>
+
+```sh
+Options:
+      --help     Show help                                             [boolean]
+      --version  Show version number                                   [boolean]
+  -v, --vaa      vaa in hex format                           [string] [required]
+  -n, --network  Network    [required] [choices: "mainnet", "testnet", "devnet"]
+```
+</details>
+
+<details>
+<summary> status <network> <chain> <tx> </summary>
+
+```sh
+Positionals:
+  network  Network                     [choices: "mainnet", "testnet", "devnet"]
+  chain    Source chain. To see a list of supported chains, run `worm chains`
+                                                                        [string]
+  tx       Source transaction hash                                      [string]
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+</details>
+<!--CLI_USAGE-->
+
+## Examples
+
+### VAA generation
+
+Use `generate` to create VAAs for testing. For example, to create an NFT bridge registration VAA:
+
+```sh
 $ worm generate registration --module NFTBridge \
     --chain bsc \
     --contract-address 0x706abc4E45D419950511e474C7B9Ed348A4a716c \
+    --guardian-secret cfb12303a19cde580bb4dd771639b0d26bc68353645571a8cff516ab2ee113a0
+```
+
+Example creating a token attestation VAA:
+
+```sh
+$ worm generate attestation --emitter-chain ethereum \
+    --emitter-address 11111111111111111111111111111115 \
+    --chain ethereum \
+    --token-address 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 \
+    --decimals 6 \
+    --symbol USDC \
+    --name USDC \
     --guardian-secret cfb12303a19cde580bb4dd771639b0d26bc68353645571a8cff516ab2ee113a0
 ```
 
@@ -49,10 +381,10 @@ $ worm generate registration --module NFTBridge \
 Use `parse` to parse a VAA into JSON. For example,
 
     worm parse $(worm-fetch-governance 13940208096455381020)
-    
+
 will fetch governance VAA `13940208096455381020` and print it as JSON.
-    
-``` sh
+
+```sh
 # ...signatures elided
 timestamp: 1651416474,
 nonce: 1570649151,
@@ -97,12 +429,11 @@ what's the destination chain and module. For example, a contract upgrade contain
 
     worm submit $(cat my-nft-registration.txt) --network mainnet
 
-
 For VAAs that don't have a specific target chain (like registrations or guardian
 set upgrades), the script will ask you to specify the target chain.
 For example, to submit a guardian set upgrade on all chains, simply run:
 
-``` sh
+```sh
 $ worm-fetch-governance 13940208096455381020 > guardian-upgrade.txt
 $ worm submit $(cat guardian-upgrade.txt) --network mainnet --chain oasis
 $ worm submit $(cat guardian-upgrade.txt) --network mainnet --chain aurora
@@ -121,12 +452,11 @@ $ worm submit $(cat guardian-upgrade.txt) --network mainnet --chain celo
 
 The VAA payload type (guardian set upgrade) specifies that this VAA should go to the core bridge, and the tool directs it there.
 
-
 ### info
 
 To get info about a contract (only EVM supported at this time)
 
-``` sh
+```sh
 $ worm evm info -c bsc -n mainnet -m TokenBridge
 
 {
@@ -164,18 +494,17 @@ $ worm evm info -c bsc -n mainnet -m TokenBridge
     "arbitrum": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "optimism": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "gnosis": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    "ropsten": "0x0000000000000000000000000000000000000000000000000000000000000000"
   }
 }
 
 ```
+
 ### Misc
 
 To get the contract address for a module:
 
-    $ worm contract mainnet bsc NFTBridge
+    $ worm info contract mainnet bsc NFTBridge
 
 To get the RPC address for a chain
 
-    $ worm rpc mainnet bsc
-
+    $ worm info rpc mainnet bsc

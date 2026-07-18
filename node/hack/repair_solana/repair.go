@@ -11,15 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/certusone/wormhole/node/pkg/common"
 	"github.com/certusone/wormhole/node/pkg/db"
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	nodev1 "github.com/certusone/wormhole/node/pkg/proto/node/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/wormhole-foundation/wormhole/sdk"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
@@ -33,7 +34,7 @@ const (
 )
 
 func getAdminClient(ctx context.Context, addr string) (*grpc.ClientConn, error, nodev1.NodePrivilegedServiceClient) {
-	conn, err := grpc.DialContext(ctx, fmt.Sprintf("unix:///%s", addr), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, fmt.Sprintf("unix:///%s", addr), grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	if err != nil {
 		log.Fatalf("failed to connect to %s: %v", addr, err)
@@ -55,7 +56,7 @@ func main() {
 		log.Fatalf("failed to get admin client: %v", err)
 	}
 
-	for _, emitter := range common.KnownEmitters {
+	for _, emitter := range sdk.KnownEmitters {
 		if emitter.ChainID != vaa.ChainIDSolana {
 			continue
 		}
@@ -66,7 +67,7 @@ func main() {
 			EmitterChain:   uint32(vaa.ChainIDSolana),
 			EmitterAddress: emitter.Emitter,
 			RpcBackfill:    true,
-			BackfillNodes:  common.PublicRPCEndpoints,
+			BackfillNodes:  sdk.PublicRPCEndpoints,
 		}
 		resp, err := admin.FindMissingMessages(ctx, &msg)
 		if err != nil {
@@ -165,7 +166,7 @@ func main() {
 					offset := firstSeq - p.Sequence - 10
 					log.Printf("repairing: %d (offset %d)", p.Sequence, offset)
 
-					var tx *rpc.TransactionWithMeta
+					var tx *rpc.GetTransactionResult
 					var nseq uint64
 					var err error
 
@@ -213,7 +214,7 @@ func main() {
 						log.Printf("verifying %d", p.Sequence)
 						req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf(
 							"%s/v1/signed_vaa/%d/%s/%d",
-							common.PublicRPCEndpoints[0],
+							sdk.PublicRPCEndpoints[0],
 							vaa.ChainIDSolana,
 							hex.EncodeToString(addr[:]),
 							p.Sequence), nil)
@@ -242,8 +243,14 @@ func main() {
 	}
 }
 
-func fetchTxSeq(ctx context.Context, c *rpc.Client, sig solana.Signature) (*rpc.TransactionWithMeta, uint64, error) {
-	out, err := c.GetConfirmedTransaction(ctx, sig)
+func fetchTxSeq(ctx context.Context, c *rpc.Client, sig solana.Signature) (*rpc.GetTransactionResult, uint64, error) {
+	maxSupportedTransactionVersion := uint64(0)
+	params := rpc.GetTransactionOpts{
+		Encoding:                       solana.EncodingBase64,
+		Commitment:                     rpc.CommitmentConfirmed,
+		MaxSupportedTransactionVersion: &maxSupportedTransactionVersion,
+	}
+	out, err := c.GetTransaction(ctx, sig, &params)
 	if err != nil {
 		return nil, 0, fmt.Errorf("GetConfirmedTransaction: %v", err)
 	}
@@ -261,15 +268,22 @@ func fetchTxSeq(ctx context.Context, c *rpc.Client, sig solana.Signature) (*rpc.
 	return nil, 0, nil
 }
 
-func process(tx *rpc.TransactionWithMeta) (*solana.PublicKey, error) {
+func process(out *rpc.GetTransactionResult) (*solana.PublicKey, error) {
 	program, err := solana.PublicKeyFromBase58(*solanaAddr)
 	if err != nil {
 		log.Fatalf("Invalid program address: %v", err)
+		return nil, err
 	}
 
-	signature := tx.Transaction.Signatures[0]
+	tx, err := out.Transaction.GetTransaction()
+	if err != nil {
+		log.Fatalf("Failed to unmarshal transaction: %v", err)
+		return nil, err
+	}
+
+	signature := tx.Signatures[0]
 	var programIndex uint16
-	for n, key := range tx.Transaction.Message.AccountKeys {
+	for n, key := range tx.Message.AccountKeys {
 		if key.Equals(program) {
 			programIndex = uint16(n)
 		}
@@ -280,9 +294,9 @@ func process(tx *rpc.TransactionWithMeta) (*solana.PublicKey, error) {
 
 	log.Printf("found Wormhole tx in %s", signature)
 
-	txs := make([]solana.CompiledInstruction, 0, len(tx.Transaction.Message.Instructions))
-	txs = append(txs, tx.Transaction.Message.Instructions...)
-	for _, inner := range tx.Meta.InnerInstructions {
+	txs := make([]solana.CompiledInstruction, 0, len(tx.Message.Instructions))
+	txs = append(txs, tx.Message.Instructions...)
+	for _, inner := range out.Meta.InnerInstructions {
 		txs = append(txs, inner.Instructions...)
 	}
 
@@ -293,7 +307,7 @@ func process(tx *rpc.TransactionWithMeta) (*solana.PublicKey, error) {
 		if inst.Data[0] != postMessageInstructionID {
 			continue
 		}
-		acc := tx.Transaction.Message.AccountKeys[inst.Accounts[1]]
+		acc := tx.Message.AccountKeys[inst.Accounts[1]]
 		return &acc, nil
 	}
 

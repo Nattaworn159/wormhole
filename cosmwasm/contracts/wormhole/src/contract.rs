@@ -1,77 +1,34 @@
 use cosmwasm_std::{
-    has_coins,
-    to_binary,
-    BankMsg,
-    Binary,
-    Coin,
-    CosmosMsg,
-    Deps,
-    DepsMut,
-    Env,
-    MessageInfo,
-    Response,
-    StdError,
-    StdResult,
-    Storage,
-    WasmMsg,
+    has_coins, to_binary, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
+    Response, StdError, StdResult, Storage, WasmMsg,
 };
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 
 use crate::{
-    byte_utils::{
-        extend_address_to_32,
-        ByteUtils,
-    },
+    byte_utils::{extend_address_to_32, ByteUtils},
     error::ContractError,
     msg::{
-        ExecuteMsg,
-        GetAddressHexResponse,
-        GetStateResponse,
-        GuardianSetInfoResponse,
-        InstantiateMsg,
-        MigrateMsg,
-        QueryMsg,
+        ExecuteMsg, GetAddressHexResponse, GetStateResponse, GuardianSetInfoResponse,
+        InstantiateMsg, MigrateMsg, QueryMsg,
     },
     state::{
-        config,
-        config_read,
-        config_read_legacy,
-        guardian_set_get,
-        guardian_set_set,
-        sequence_read,
-        sequence_set,
-        vaa_archive_add,
-        vaa_archive_check,
-        ConfigInfo,
-        ConfigInfoLegacy,
-        ContractUpgrade,
-        GovernancePacket,
-        GuardianAddress,
-        GuardianSetInfo,
-        GuardianSetUpgrade,
-        ParsedVAA,
-        SetFee,
-        TransferFee,
+        config, config_read, guardian_set_get, guardian_set_set, sequence_read, sequence_set,
+        vaa_archive_add, vaa_archive_check, ConfigInfo, ContractUpgrade, GovernancePacket,
+        GuardianAddress, GuardianSetInfo, GuardianSetUpgrade, ParsedVAA, SetFee, TransferFee,
     },
 };
 
 use k256::{
     ecdsa::{
-        recoverable::{
-            Id as RecoverableId,
-            Signature as RecoverableSignature,
-        },
-        Signature,
-        VerifyingKey,
+        recoverable::{Id as RecoverableId, Signature as RecoverableSignature},
+        Signature, VerifyingKey,
     },
-    EncodedPoint,
+    elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint},
+    AffinePoint, EncodedPoint,
 };
-use sha3::{
-    Digest,
-    Keccak256,
-};
+use sha3::{Digest, Keccak256};
 
 use generic_array::GenericArray;
 use std::convert::TryFrom;
@@ -91,48 +48,8 @@ const FEE_AMOUNT: u128 = 0;
 /// Ok(Response::default())
 /// ```
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
-    // This migration adds two new fields to the [`ConfigInfo`] struct. The
-    // state stored on chain has the old version, so we first parse it as
-    // [`ConfigInfoLegacy`], then add the new fields, and write it back as [`ConfigInfo`].
-    // Since the only place the contract with the legacy state is deployed is
-    // terra2, we just hardcode the new values here for that chain.
-
-    // 1. make sure this contract doesn't already have the new ConfigInfo struct
-    // in storage. Note that this check is not strictly necessary, as the
-    // upgrade will only be issued for terra2, and no new chains. However, it is
-    // good practice to ensure that migration code cannot be run twice, which
-    // this check achieves.
-    if config_read(deps.storage).load().is_ok() {
-        return Err(StdError::generic_err(
-            "Can't migrate; this contract already has a new ConfigInfo struct",
-        ));
-    }
-
-    // 2. parse old state
-    let ConfigInfoLegacy {
-        guardian_set_index,
-        guardian_set_expirity,
-        gov_chain,
-        gov_address,
-        fee,
-    } = config_read_legacy(deps.storage).load()?;
-
-    // 3. store new state with terra2 values hardcoded
-    let chain_id = 18;
-    let fee_denom = "uluna".to_string();
-
-    let config_info = ConfigInfo {
-        guardian_set_index,
-        guardian_set_expirity,
-        gov_chain,
-        gov_address,
-        fee,
-        chain_id,
-        fee_denom,
-    };
-
-    config(deps.storage).save(&config_info)?;
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    // This migration is not, currently, needed as the upgrade has happened successfully.
     Ok(Response::default())
     // NOTE: once this migration has successfully completed, the contents of
     // this (`migrate`) function should be deleted, along with the
@@ -172,10 +89,16 @@ pub fn instantiate(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
+        #[cfg(feature = "full")]
         ExecuteMsg::PostMessage { message, nonce } => {
             handle_post_message(deps, env, info, message.as_slice(), nonce)
         }
+
         ExecuteMsg::SubmitVAA { vaa } => handle_submit_vaa(deps, env, info, vaa.as_slice()),
+
+        // When in "shutdown" mode, we reject any other action
+        #[cfg(not(feature = "full"))]
+        _ => Err(StdError::generic_err("Invalid during shutdown mode")),
     }
 }
 
@@ -223,7 +146,9 @@ fn handle_governance_payload(deps: DepsMut, env: Env, data: &[u8]) -> StdResult<
     match gov_packet.action {
         1u8 => vaa_update_contract(deps, env, &gov_packet.payload),
         2u8 => vaa_update_guardian_set(deps, env, &gov_packet.payload),
+        #[cfg(feature = "full")]
         3u8 => handle_set_fee(deps, env, &gov_packet.payload),
+        #[cfg(feature = "full")]
         4u8 => handle_transfer_fee(deps, env, &gov_packet.payload),
         _ => ContractError::InvalidVAAAction.std_err(),
     }
@@ -284,7 +209,7 @@ fn parse_and_verify_vaa(
             .or_else(|_| ContractError::CannotDecodeSignature.std_err())?;
 
         let verify_key = recoverable_signature
-            .recover_verify_key_from_digest_bytes(GenericArray::from_slice(vaa.hash.as_slice()))
+            .recover_verifying_key_from_digest_bytes(GenericArray::from_slice(vaa.hash.as_slice()))
             .or_else(|_| ContractError::CannotRecoverKey.std_err())?;
 
         let index = index as usize;
@@ -453,13 +378,16 @@ pub fn query_state(deps: Deps) -> StdResult<GetStateResponse> {
 fn keys_equal(a: &VerifyingKey, b: &GuardianAddress) -> bool {
     let mut hasher = Keccak256::new();
 
-    let point = if let Some(p) = EncodedPoint::from(a).decompress() {
-        p
+    let affine_point_option = AffinePoint::from_encoded_point(&EncodedPoint::from(a));
+    let affine_point = if affine_point_option.is_some().into() {
+        affine_point_option.unwrap()
     } else {
         return false;
     };
 
-    hasher.update(&point.as_bytes()[1..]);
+    let decompressed_point = affine_point.to_encoded_point(false);
+
+    hasher.update(&decompressed_point.as_bytes()[1..]);
     let a = &hasher.finalize()[12..];
 
     let b = &b.bytes;
@@ -472,4 +400,44 @@ fn keys_equal(a: &VerifyingKey, b: &GuardianAddress) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        contract::{EncodedPoint, VerifyingKey},
+        state::GuardianAddress,
+    };
+
+    use super::keys_equal;
+
+    const DECOMPRESSED_KEY: &str = "049678ad0aa2fbd7f212239e21ed1472e84ca558fecf70a54bbf7901d89c306191c52e7f10012960085ecdbbeeb22e63a8e86b58f788990b4db53cdf4e0a55ac1e";
+    const COMPRESSED_KEY: &str =
+        "029678ad0aa2fbd7f212239e21ed1472e84ca558fecf70a54bbf7901d89c306191";
+    const ADDRESS: &str = "54dbb737eac5007103e729e9ab7ce64a6850a310";
+
+    fn test_keys_equal(point: Vec<u8>) {
+        let addr = GuardianAddress::from(ADDRESS);
+
+        // get the verifying key for the point
+        let encoded_point = EncodedPoint::from_bytes(point).unwrap();
+        let verifying_key = VerifyingKey::from_encoded_point(&encoded_point).unwrap();
+
+        // pass into function
+        // verifying key should == addr
+        let is_equal = keys_equal(&verifying_key, &addr);
+        assert!(is_equal)
+    }
+
+    #[test]
+    fn keys_equal_decompressed_point() {
+        let decompressed_point = hex::decode(DECOMPRESSED_KEY).unwrap();
+        test_keys_equal(decompressed_point)
+    }
+
+    #[test]
+    fn keys_equal_compressed_point() {
+        let compressed_point = hex::decode(COMPRESSED_KEY).unwrap();
+        test_keys_equal(compressed_point)
+    }
 }

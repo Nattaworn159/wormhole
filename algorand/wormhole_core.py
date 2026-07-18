@@ -50,6 +50,12 @@ def fullyCompileContract(genTeal, client: AlgodClient, contract: Expr, name, dev
             teal = f.read()
 
     response = client.compile(teal)
+
+    with open(name + ".bin", "w") as fout:
+        fout.write(response["result"])
+    with open(name + ".hash", "w") as fout:
+        fout.write(decode_address(response["hash"]).hex())
+
     return response
 
 def getCoreContracts(   genTeal, approve_name, clear_name,
@@ -98,7 +104,7 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
                 tmpl_sig.get_bytecode_chunk(0),
                 encode_uvarint(acct_seq_start, Bytes("")),
 
-                # EMMITTER_ID
+                # EMITTER_ID
                 tmpl_sig.get_bytecode_chunk(1),
                 encode_uvarint(Len(emitter), Bytes("")),
                 emitter,
@@ -120,18 +126,21 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
         @Subroutine(TealType.uint64)
         def optin():
             # Alias for readability
-            algo_seed = Gtxn[0]
-            optin = Gtxn[1]
+            algo_seed = Gtxn[Txn.group_index() - Int(1)]
+            optin = Txn
     
             well_formed_optin = And(
                 # Check that we're paying it
                 algo_seed.type_enum() == TxnType.Payment,
                 algo_seed.amount() == Int(seed_amt),
+                algo_seed.receiver() == optin.sender(),
                 # Check that its an opt in to us
                 optin.type_enum() == TxnType.ApplicationCall,
                 optin.on_completion() == OnComplete.OptIn,
                 # Not strictly necessary since we wouldn't be seeing this unless it was us, but...
                 optin.application_id() == Global.current_application_id(),
+                optin.rekey_to() == Global.current_application_address(),
+                optin.application_args.length() == Int(0)
             )
     
             return Seq(
@@ -314,10 +323,7 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
             ])
 
         def verifySigs():
-            return Seq([
-                Approve(),
-            ])
-
+            return Return (Txn.sender() == STATELESS_LOGIC_HASH)
 
         @Subroutine(TealType.none)
         def checkForDuplicate():
@@ -460,6 +466,9 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
                                     # What signatures did this verifySigs check?
                                     s.store(Gtxn[i.load()].application_args[1]),
 
+                                    # Make sure we bail earlier on incorrect arguments...
+                                    MagicAssert(Len(s.load()) > Int(0)),
+
                                     # Look at the vaa and confirm those were the expected signatures we should have been checking
                                     # at this point in the process
                                     MagicAssert(Extract(Txn.application_args[1], off.load(), Len(s.load())) == s.load()),
@@ -513,6 +522,7 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
                     Gtxn[Txn.group_index() - Int(1)].application_args[0] == Bytes("verifyVAA"),
                     Gtxn[Txn.group_index() - Int(1)].sender() == Txn.sender(),
                     Gtxn[Txn.group_index() - Int(1)].rekey_to() == Global.zero_address(),
+                    Gtxn[Txn.group_index() - Int(1)].on_completion() == OnComplete.NoOp,
 
                     # Lets see if the vaa we are about to process was actually verified by the core
                     Gtxn[Txn.group_index() - Int(1)].application_args[1] == Txn.application_args[1],
@@ -549,7 +559,6 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
             App.globalPut(Bytes("vphash"), Bytes("")),
             App.globalPut(Bytes("currentGuardianSetIndex"), Int(0)),
             App.globalPut(Bytes("validUpdateApproveHash"), Bytes("")),
-            App.globalPut(Bytes("validUpdateClearHash"), Bytes("base16", "73be5fd7cd378289177bf4a7ca5433ab30d91b417381bba8bd704aff2dec424f")), # empty clear state program
             Return(Int(1))
         ])
 
@@ -559,16 +568,11 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
         clearSet = ScratchVar()
 
         def getOnUpdate():
-            if devMode:
-                return Seq( [
-                    Return(Txn.sender() == Global.creator_address()),
-                ])
-            else:
-                return Seq( [
-                    MagicAssert(Sha512_256(Concat(Bytes("Program"), Txn.approval_program())) == App.globalGet(Bytes("validUpdateApproveHash"))),
-                    MagicAssert(Sha512_256(Concat(Bytes("Program"), Txn.clear_state_program())) == App.globalGet(Bytes("validUpdateClearHash"))),
-                    Return(Int(1))
-                ] )
+            return Seq( [
+                MagicAssert(Sha512_256(Concat(Bytes("Program"), Txn.approval_program())) == App.globalGet(Bytes("validUpdateApproveHash"))),
+                MagicAssert(And(Len(Txn.clear_state_program()) == Int(4), Extract(Txn.clear_state_program(), Int(1), Int(3)) == Bytes("base16", "810143"))),
+                Return(Int(1))
+            ] )
 
         on_update = getOnUpdate()
         
@@ -594,3 +598,13 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
 
     return APPROVAL_PROGRAM, CLEAR_STATE_PROGRAM
 
+def cli(output_approval, output_clear):
+    seed_amt = 1002000
+    tmpl_sig = TmplSig("sig")
+
+    client = AlgodClient("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "https://testnet-api.algonode.cloud")
+
+    approval, clear = getCoreContracts(True, output_approval, output_clear, client, seed_amt, tmpl_sig, True)
+
+if __name__ == "__main__":
+    cli(sys.argv[1], sys.argv[2])

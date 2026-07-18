@@ -1,3 +1,4 @@
+//nolint:forcetypeassert //this is a hack
 package main
 
 import (
@@ -14,17 +15,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/certusone/wormhole/node/pkg/common"
+	"github.com/certusone/wormhole/node/pkg/watchers/evm/connectors/ethabi"
+
 	"github.com/certusone/wormhole/node/pkg/db"
-	"github.com/certusone/wormhole/node/pkg/ethereum/abi"
 	gossipv1 "github.com/certusone/wormhole/node/pkg/proto/gossip/v1"
 	nodev1 "github.com/certusone/wormhole/node/pkg/proto/node/v1"
-	"github.com/certusone/wormhole/node/pkg/vaa"
 	abi2 "github.com/ethereum/go-ethereum/accounts/abi"
 	eth_common "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/wormhole-foundation/wormhole/sdk"
+	"github.com/wormhole-foundation/wormhole/sdk/vaa"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var etherscanAPIMap = map[vaa.ChainID]string{
@@ -38,21 +41,45 @@ var etherscanAPIMap = map[vaa.ChainID]string{
 	vaa.ChainIDKarura:    "https://blockscout.karura.network/api",
 	vaa.ChainIDAcala:     "https://blockscout.acala.network/api",
 	// NOTE: Not sure what should be here for Klaytn, since they use: https://scope.klaytn.com/
-	vaa.ChainIDCelo: "https://celoscan.xyz/api",
+	vaa.ChainIDCelo:       "https://celoscan.xyz/api",
+	vaa.ChainIDMoonbeam:   "https://api-moonbeam.moonscan.io",
+	vaa.ChainIDArbitrum:   "https://api.arbiscan.io",
+	vaa.ChainIDOptimism:   "https://api-optimistic.etherscan.io",
+	vaa.ChainIDBase:       "https://api.basescan.org",
+	vaa.ChainIDScroll:     "https://api.scrollscan.com",
+	vaa.ChainIDMantle:     "https://api.mantlescan.xyz/",
+	vaa.ChainIDBlast:      "https://api.blastscan.io",
+	vaa.ChainIDXLayer:     "", // TODO: Does X Layer have an etherscan API endpoint?
+	vaa.ChainIDBerachain:  "https://api.berascan.com/",
+	vaa.ChainIDUnichain:   "https://api.uniscan.xyz/",
+	vaa.ChainIDWorldchain: "https://api.worldscan.org",
+	vaa.ChainIDInk:        "", // TODO: Does Ink have an etherscan API endpoint?
 }
 
 var coreContractMap = map[vaa.ChainID]string{
-	vaa.ChainIDEthereum:  "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
-	vaa.ChainIDBSC:       "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
-	vaa.ChainIDAvalanche: "0x54a8e5f9c4CbA08F9943965859F6c34eAF03E26c",
-	vaa.ChainIDPolygon:   "0x7A4B5a56256163F07b2C80A7cA55aBE66c4ec4d7",
-	vaa.ChainIDOasis:     "0xfe8cd454b4a1ca468b57d79c0cc77ef5b6f64585", // <- converted to all lower case for easy compares
-	vaa.ChainIDAurora:    "0xa321448d90d4e5b0a732867c18ea198e75cac48e",
-	vaa.ChainIDFantom:    strings.ToLower("0x126783A6Cb203a3E35344528B26ca3a0489a1485"),
-	vaa.ChainIDKarura:    strings.ToLower("0xa321448d90d4e5b0A732867c18eA198e75CAC48E"),
-	vaa.ChainIDAcala:     strings.ToLower("0xa321448d90d4e5b0A732867c18eA198e75CAC48E"),
-	vaa.ChainIDKlaytn:    strings.ToLower("0x0C21603c4f3a6387e241c0091A7EA39E43E90bb7"),
-	vaa.ChainIDCelo:      strings.ToLower("0xa321448d90d4e5b0A732867c18eA198e75CAC48E"),
+	vaa.ChainIDEthereum:   "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
+	vaa.ChainIDBSC:        "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
+	vaa.ChainIDAvalanche:  "0x54a8e5f9c4CbA08F9943965859F6c34eAF03E26c",
+	vaa.ChainIDPolygon:    "0x7A4B5a56256163F07b2C80A7cA55aBE66c4ec4d7",
+	vaa.ChainIDOasis:      "0xfe8cd454b4a1ca468b57d79c0cc77ef5b6f64585", // <- converted to all lower case for easy compares
+	vaa.ChainIDAurora:     "0xa321448d90d4e5b0a732867c18ea198e75cac48e",
+	vaa.ChainIDFantom:     strings.ToLower("0x126783A6Cb203a3E35344528B26ca3a0489a1485"),
+	vaa.ChainIDKarura:     strings.ToLower("0xa321448d90d4e5b0A732867c18eA198e75CAC48E"),
+	vaa.ChainIDAcala:      strings.ToLower("0xa321448d90d4e5b0A732867c18eA198e75CAC48E"),
+	vaa.ChainIDKlaytn:     strings.ToLower("0x0C21603c4f3a6387e241c0091A7EA39E43E90bb7"),
+	vaa.ChainIDCelo:       strings.ToLower("0xa321448d90d4e5b0A732867c18eA198e75CAC48E"),
+	vaa.ChainIDMoonbeam:   strings.ToLower("0xC8e2b0cD52Cf01b0Ce87d389Daa3d414d4cE29f3"),
+	vaa.ChainIDArbitrum:   strings.ToLower("0xa5f208e072434bC67592E4C49C1B991BA79BCA46"),
+	vaa.ChainIDOptimism:   strings.ToLower("0xEe91C335eab126dF5fDB3797EA9d6aD93aeC9722"),
+	vaa.ChainIDBase:       strings.ToLower("0xbebdb6C8ddC678FfA9f8748f85C815C556Dd8ac6"),
+	vaa.ChainIDScroll:     strings.ToLower("0xbebdb6C8ddC678FfA9f8748f85C815C556Dd8ac6"),
+	vaa.ChainIDMantle:     strings.ToLower("0xbebdb6C8ddC678FfA9f8748f85C815C556Dd8ac6"),
+	vaa.ChainIDBlast:      strings.ToLower("0xbebdb6C8ddC678FfA9f8748f85C815C556Dd8ac6"),
+	vaa.ChainIDXLayer:     strings.ToLower("0x194B123c5E96B9b2E49763619985790Dc241CAC0"),
+	vaa.ChainIDBerachain:  strings.ToLower("0xCa1D5a146B03f6303baF59e5AD5615ae0b9d146D"),
+	vaa.ChainIDUnichain:   strings.ToLower("0xCa1D5a146B03f6303baF59e5AD5615ae0b9d146D"),
+	vaa.ChainIDWorldchain: strings.ToLower("0xcbcEe4e081464A15d8Ad5f58BB493954421eB506"),
+	vaa.ChainIDInk:        strings.ToLower("0xCa1D5a146B03f6303baF59e5AD5615ae0b9d146D"),
 }
 
 var (
@@ -85,7 +112,7 @@ func usesBlockscout(chainId vaa.ChainID) bool {
 }
 
 func getAdminClient(ctx context.Context, addr string) (*grpc.ClientConn, error, nodev1.NodePrivilegedServiceClient) {
-	conn, err := grpc.DialContext(ctx, fmt.Sprintf("unix:///%s", addr), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, fmt.Sprintf("unix:///%s", addr), grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	if err != nil {
 		log.Fatalf("failed to connect to %s: %v", addr, err)
@@ -292,7 +319,7 @@ func main() {
 		EmitterAddress: ignoreAddress,
 	}
 
-	for _, emitter := range common.KnownEmitters {
+	for _, emitter := range sdk.KnownEmitters {
 		if emitter.ChainID != chainID {
 			continue
 		}
@@ -305,7 +332,7 @@ func main() {
 			EmitterChain:   uint32(chainID),
 			EmitterAddress: emitter.Emitter,
 			RpcBackfill:    true,
-			BackfillNodes:  common.PublicRPCEndpoints,
+			BackfillNodes:  sdk.PublicRPCEndpoints,
 		}
 		resp, err := admin.FindMissingMessages(ctx, &msg)
 		if err != nil {
@@ -347,7 +374,10 @@ func main() {
 	// Press enter to continue if not in dryRun mode
 	if !*dryRun {
 		fmt.Println("Press enter to continue")
-		fmt.Scanln()
+		_, err := fmt.Scanln()
+		if err != nil {
+			log.Printf("Scanln error: %s\n", err)
+		}
 	}
 
 	log.Printf("finding sequences")
@@ -359,7 +389,7 @@ func main() {
 		Timeout: 5 * time.Second,
 	}
 
-	ethAbi, err := abi2.JSON(strings.NewReader(abi.AbiABI))
+	ethAbi, err := abi2.JSON(strings.NewReader(ethabi.AbiABI))
 	if err != nil {
 		log.Fatalf("failed to parse Eth ABI: %v", err)
 	}
@@ -472,7 +502,7 @@ func main() {
 				log.Printf("verifying %d", seq)
 				req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf(
 					"%s/v1/signed_vaa/%d/%s/%d",
-					common.PublicRPCEndpoints[0],
+					sdk.PublicRPCEndpoints[0],
 					chainID,
 					hex.EncodeToString(eth_common.LeftPadBytes(emitter.Bytes(), 32)),
 					seq), nil)
