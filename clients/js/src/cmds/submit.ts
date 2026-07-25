@@ -176,7 +176,12 @@ async function executeSubmit(
   } else if (chain === "Near") {
     await execute_near(parsedVaa.payload, vaaHex, network);
   } else if (chain === "Injective") {
-    await execute_injective(parsedVaa.payload, buf, network);
+    await execute_injective(
+      parsedVaa.payload,
+      buf,
+      network,
+      contractAddress
+    );
   } else if (chain === "Xpla") {
     await execute_xpla(parsedVaa.payload, buf, network);
   } else if (chain === "Sei") {
