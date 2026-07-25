@@ -104,7 +104,7 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
                 tmpl_sig.get_bytecode_chunk(0),
                 encode_uvarint(acct_seq_start, Bytes("")),
 
-                # EMMITTER_ID
+                # EMITTER_ID
                 tmpl_sig.get_bytecode_chunk(1),
                 encode_uvarint(Len(emitter), Bytes("")),
                 emitter,
@@ -126,8 +126,8 @@ def getCoreContracts(   genTeal, approve_name, clear_name,
         @Subroutine(TealType.uint64)
         def optin():
             # Alias for readability
-            algo_seed = Gtxn[0]
-            optin = Gtxn[1]
+            algo_seed = Gtxn[Txn.group_index() - Int(1)]
+            optin = Txn
     
             well_formed_optin = And(
                 # Check that we're paying it

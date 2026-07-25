@@ -54,11 +54,11 @@ const CONSISTENCY_LEVEL = 0;
 
 const CHAIN_ID = 18;
 
-const WASM_WORMHOLE = "../artifacts/wormhole.wasm";
+const WASM_WORMHOLE = "../artifacts/cw_wormhole.wasm";
 const WASM_SHUTDOWN_WORMHOLE =
   "../artifacts/shutdown_core_bridge_cosmwasm.wasm";
 const WASM_WRAPPED_ASSET = "../artifacts/cw20_wrapped_2.wasm";
-const WASM_TOKEN_BRIDGE = "../artifacts/token_bridge_terra_2.wasm";
+const WASM_TOKEN_BRIDGE = "../artifacts/cw_token_bridge.wasm";
 const WASM_SHUTDOWN_TOKEN_BRIDGE =
   "../artifacts/shutdown_token_bridge_cosmwasm.wasm";
 const WASM_MOCK_BRIDGE_INTEGRATION =
@@ -1159,8 +1159,7 @@ function failInShutdownModeTests(shutdownMode: boolean, pass: number) {
               submitVaa,
             ]);
           } catch (e) {
-            const errorMsg: string = e.response.data.message;
-            expectedErrorFound = errorMsg.includes(
+            expectedErrorFound = e.message.includes(
               "transfers with payload can only be redeemed by the recipient"
             );
           }
@@ -1387,7 +1386,9 @@ function alwaysPassTests(shutdownMode: boolean, pass: number) {
             },
           });
           expect(result).toStrictEqual({
-            address: Buffer.from(FOREIGN_TOKEN_BRIDGE, "hex").toString("base64")
+            address: Buffer.from(FOREIGN_TOKEN_BRIDGE, "hex").toString(
+              "base64"
+            ),
           });
           done();
         } catch (e) {

@@ -4,11 +4,9 @@
 module token_bridge::token_bridge_scenario {
     use std::vector::{Self};
     use sui::balance::{Self};
-    use sui::clock::{Clock};
     use sui::package::{UpgradeCap};
     use sui::test_scenario::{Self, Scenario};
     use wormhole::external_address::{Self};
-    use wormhole::state::{State as WormholeState};
     use wormhole::wormhole_scenario::{
         deployer,
         return_state as return_wormhole_state,
@@ -37,17 +35,44 @@ module token_bridge::token_bridge_scenario {
         // Ignore effects.
         test_scenario::next_tx(scenario, deployer());
 
-        // Finally share `State`.
         let wormhole_state = take_wormhole_state(scenario);
+
+        let upgrade_cap =
+            test_scenario::take_from_sender<UpgradeCap>(scenario);
+        let emitter_cap =
+            wormhole::emitter::new(
+                &wormhole_state,
+                test_scenario::ctx(scenario)
+            );
+        let governance_chain = 1;
+        let governance_contract =
+            x"0000000000000000000000000000000000000000000000000000000000000004";
+
+        // Finally share `State`.
         setup::complete(
-            &mut wormhole_state,
             test_scenario::take_from_sender<DeployerCap>(scenario),
-            test_scenario::take_from_sender<UpgradeCap>(scenario),
+            upgrade_cap,
+            emitter_cap,
+            governance_chain,
+            governance_contract,
             test_scenario::ctx(scenario)
         );
 
         // Clean up.
         return_wormhole_state(wormhole_state);
+    }
+
+    /// Perform an upgrade (which just upticks the current version of what the
+    /// `State` believes is true).
+    public fun upgrade_token_bridge(scenario: &mut Scenario) {
+        // Clean up from activity prior.
+        test_scenario::next_tx(scenario, person());
+
+        let token_bridge_state = take_state(scenario);
+        state::test_upgrade(&mut token_bridge_state);
+
+        // Clean up.
+        return_state(token_bridge_state);
     }
 
     /// Register arbitrary chain ID with the same emitter address (0xdeadbeef).
@@ -56,7 +81,7 @@ module token_bridge::token_bridge_scenario {
         test_scenario::next_tx(scenario, person());
 
         let token_bridge_state = take_state(scenario);
-        state::register_new_emitter_test_only(
+        token_bridge::register_chain::register_new_emitter_test_only(
             &mut token_bridge_state,
             chain,
             external_address::from_address(@0xdeadbeef)
@@ -107,28 +132,5 @@ module token_bridge::token_bridge_scenario {
 
     public fun return_state(token_bridge_state: State) {
         test_scenario::return_shared(token_bridge_state);
-    }
-
-    public fun take_states(scenario: &Scenario): (State, WormholeState) {
-        (
-            test_scenario::take_shared<State>(scenario),
-            test_scenario::take_shared<WormholeState>(scenario)
-        )
-    }
-
-    public fun return_states(
-        token_bridge_state: State,
-        worm_state: WormholeState
-    ) {
-        return_state(token_bridge_state);
-        wormhole::wormhole_scenario::return_state(worm_state);
-    }
-
-    public fun take_clock(scenario: &mut Scenario): Clock {
-        wormhole::wormhole_scenario::take_clock(scenario)
-    }
-
-    public fun return_clock(the_clock: Clock) {
-        wormhole::wormhole_scenario::return_clock(the_clock)
     }
 }

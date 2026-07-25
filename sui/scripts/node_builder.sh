@@ -1,10 +1,9 @@
 #!/bin/bash
 
-source $HOME/.cargo/env
-
 git clone https://github.com/MystenLabs/sui.git --branch devnet
 cd sui
-git reset --hard a63f425b9999c7fdfe483598720a9effc0acdc9e
+# Corresponds to https://github.com/MystenLabs/sui/releases/tag/mainnet-v1.19.1
+git reset --hard 041c5f2bae2fe52079e44b70514333532d69f4e6
 
 cargo --locked install --path crates/sui
 cargo --locked install --path crates/sui-faucet

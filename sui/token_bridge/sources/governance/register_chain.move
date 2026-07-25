@@ -3,66 +3,80 @@
 /// This module implements handling a governance VAA to enact registering a
 /// foreign Token Bridge for a particular chain ID.
 module token_bridge::register_chain {
-    use sui::clock::{Clock};
+    use sui::table::{Self};
     use wormhole::bytes::{Self};
     use wormhole::cursor::{Self};
     use wormhole::external_address::{Self, ExternalAddress};
-    use wormhole::governance_message::{Self, GovernanceMessage};
-    use wormhole::state::{State as WormholeState};
+    use wormhole::governance_message::{Self, DecreeTicket, DecreeReceipt};
 
-    use token_bridge::state::{Self, State};
-    use token_bridge::version_control::{RegisterChain as RegisterChainControl};
+    use token_bridge::state::{Self, State, LatestOnly};
+
+    /// Cannot register chain ID == 0.
+    const E_INVALID_EMITTER_CHAIN: u64 = 0;
+    /// Emitter already exists for a given chain ID.
+    const E_EMITTER_ALREADY_REGISTERED: u64 = 1;
 
     /// Specific governance payload ID (action) for registering foreign Token
     /// Bridge contract address.
     const ACTION_REGISTER_CHAIN: u8 = 1;
+
+    struct GovernanceWitness has drop {}
 
     struct RegisterChain {
         chain: u16,
         contract_address: ExternalAddress,
     }
 
+    public fun authorize_governance(
+        token_bridge_state: &State
+    ): DecreeTicket<GovernanceWitness> {
+        governance_message::authorize_verify_global(
+            GovernanceWitness {},
+            state::governance_chain(token_bridge_state),
+            state::governance_contract(token_bridge_state),
+            state::governance_module(),
+            ACTION_REGISTER_CHAIN
+        )
+    }
+
     public fun register_chain(
         token_bridge_state: &mut State,
-        worm_chain: &WormholeState,
-        vaa_buf: vector<u8>,
-        the_clock: &Clock
-    ): (u16, ExternalAddress) {
-        state::check_minimum_requirement<RegisterChainControl>(
-            token_bridge_state
-        );
+        receipt: DecreeReceipt<GovernanceWitness>
+    ): (
+        u16,
+        ExternalAddress
+    ) {
+        // This capability ensures that the current build version is used.
+        let latest_only = state::assert_latest_only(token_bridge_state);
 
-        // Protect against replaying the VAA.
-        let msg =
-            governance_message::parse_verify_and_consume_vaa(
-                state::borrow_mut_consumed_vaas(token_bridge_state),
-                worm_chain,
-                vaa_buf,
-                the_clock
+        let payload =
+            governance_message::take_payload(
+                state::borrow_mut_consumed_vaas(
+                    &latest_only,
+                    token_bridge_state
+                ),
+                receipt
             );
 
-        handle_register_chain(token_bridge_state, msg)
+        handle_register_chain(&latest_only, token_bridge_state, payload)
     }
 
     fun handle_register_chain(
+        latest_only: &LatestOnly,
         token_bridge_state: &mut State,
-        msg: GovernanceMessage
-    ): (u16, ExternalAddress) {
-        // Verify that this governance message is to update the Wormhole fee.
-        let governance_payload =
-            governance_message::take_global_action(
-                msg,
-                state::governance_module(),
-                ACTION_REGISTER_CHAIN
-            );
-
+        governance_payload: vector<u8>
+    ): (
+        u16,
+        ExternalAddress
+    ) {
         // Deserialize the payload as amount to change the Wormhole fee.
         let RegisterChain {
             chain,
             contract_address
         } = deserialize(governance_payload);
 
-        state::register_new_emitter(
+        register_new_emitter(
+            latest_only,
             token_bridge_state,
             chain,
             contract_address
@@ -83,6 +97,44 @@ module token_bridge::register_chain {
         RegisterChain { chain, contract_address}
     }
 
+    /// Add a new Token Bridge emitter to the registry. This method will abort
+    /// if an emitter is already registered for a particular chain ID.
+    ///
+    /// See `register_chain` module for more info.
+    fun register_new_emitter(
+        latest_only: &LatestOnly,
+        token_bridge_state: &mut State,
+        chain: u16,
+        contract_address: ExternalAddress
+    ) {
+        assert!(chain != 0, E_INVALID_EMITTER_CHAIN);
+
+        let registry =
+            state::borrow_mut_emitter_registry(latest_only, token_bridge_state);
+        assert!(
+            !table::contains(registry, chain),
+            E_EMITTER_ALREADY_REGISTERED
+        );
+        table::add(registry, chain, contract_address);
+    }
+
+    #[test_only]
+    public fun register_new_emitter_test_only(
+        token_bridge_state: &mut State,
+        chain: u16,
+        contract_address: ExternalAddress
+    ) {
+        // This capability ensures that the current build version is used.
+        let latest_only = state::assert_latest_only(token_bridge_state);
+
+        register_new_emitter(
+            &latest_only,
+            token_bridge_state,
+            chain,
+            contract_address
+        );
+    }
+
     #[test_only]
     public fun action(): u8 {
         ACTION_REGISTER_CHAIN
@@ -97,15 +149,18 @@ module token_bridge::register_chain_tests {
     use wormhole::cursor::{Self};
     use wormhole::external_address::{Self};
     use wormhole::governance_message::{Self};
+    use wormhole::wormhole_scenario::{
+        parse_and_verify_vaa,
+        verify_governance_vaa
+    };
 
+    use token_bridge::register_chain::{Self};
     use token_bridge::state::{Self};
     use token_bridge::token_bridge_scenario::{
         person,
-        return_clock,
-        return_states,
+        return_state,
         set_up_wormhole_and_token_bridge,
-        take_clock,
-        take_states
+        take_state
     };
 
     const VAA_REGISTER_CHAIN_1: vector<u8> =
@@ -114,7 +169,7 @@ module token_bridge::register_chain_tests {
         x"01000000000100847ca782db7616135de4a835ed5b12ba7946bbd39f70ecd9912ec55bdc9cb6c6215c98d6ad5c8d7253c2bb0fb0f8df0dc6591408c366cf0c09e58abcfb8c0abe0000bc614e0000000000010000000000000000000000000000000000000000000000000000000000000004000000000000000101000000000000000000000000000000000000000000546f6b656e427269646765010000000200000000000000000000000000000000000000000000000000000000deafbeef";
 
     #[test]
-    public fun test_register_chain() {
+    fun test_register_chain() {
         // Testing this method.
         use token_bridge::register_chain::{register_chain};
 
@@ -130,8 +185,7 @@ module token_bridge::register_chain_tests {
         // Prepare test to execute `set_fee`.
         test_scenario::next_tx(scenario, caller);
 
-        let (token_bridge_state, worm_state) = take_states(scenario);
-        let the_clock = take_clock(scenario);
+        let token_bridge_state = take_state(scenario);
 
         // Check that the emitter is not registered.
         let expected_chain = 2;
@@ -140,16 +194,14 @@ module token_bridge::register_chain_tests {
             assert!(!table::contains(registry, expected_chain), 0);
         };
 
+        let verified_vaa = parse_and_verify_vaa(scenario, VAA_REGISTER_CHAIN_1);
+        let ticket = register_chain::authorize_governance(&token_bridge_state);
+        let receipt =
+            verify_governance_vaa(scenario, verified_vaa, ticket);
         let (
             chain,
             contract_address
-        ) =
-            register_chain(
-                &mut token_bridge_state,
-                &worm_state,
-                VAA_REGISTER_CHAIN_1,
-                &the_clock
-            );
+        ) = register_chain(&mut token_bridge_state, receipt);
         assert!(chain == expected_chain, 0);
 
         let expected_contract =
@@ -163,16 +215,15 @@ module token_bridge::register_chain_tests {
         };
 
         // Clean up.
-        return_states(token_bridge_state, worm_state);
-        return_clock(the_clock);
+        return_state(token_bridge_state);
 
         // Done.
         test_scenario::end(my_scenario);
     }
 
     #[test]
-    #[expected_failure(abort_code = state::E_EMITTER_ALREADY_REGISTERED)]
-    public fun test_cannot_register_chain_already_registered() {
+    #[expected_failure(abort_code = register_chain::E_EMITTER_ALREADY_REGISTERED)]
+    fun test_cannot_register_chain_already_registered() {
         // Testing this method.
         use token_bridge::register_chain::{register_chain};
 
@@ -188,19 +239,16 @@ module token_bridge::register_chain_tests {
         // Prepare test to execute `set_fee`.
         test_scenario::next_tx(scenario, caller);
 
-        let (token_bridge_state, worm_state) = take_states(scenario);
-        let the_clock = take_clock(scenario);
+        let token_bridge_state = take_state(scenario);
 
+        let verified_vaa = parse_and_verify_vaa(scenario, VAA_REGISTER_CHAIN_1);
+        let ticket = register_chain::authorize_governance(&token_bridge_state);
+        let receipt =
+            verify_governance_vaa(scenario, verified_vaa, ticket);
         let (
             chain,
             _
-        ) =
-            register_chain(
-                &mut token_bridge_state,
-                &worm_state,
-                VAA_REGISTER_CHAIN_1,
-                &the_clock
-            );
+        ) = register_chain(&mut token_bridge_state, receipt);
 
         // Check registry.
         let expected_contract =
@@ -209,13 +257,14 @@ module token_bridge::register_chain_tests {
                 chain
             );
 
+        // Ignore effects.
+        test_scenario::next_tx(scenario, caller);
+
+        let verified_vaa =
+            parse_and_verify_vaa(scenario, VAA_REGISTER_SAME_CHAIN);
         let payload =
-            governance_message::take_payload(
-                governance_message::parse_and_verify_vaa_test_only(
-                    &worm_state,
-                    VAA_REGISTER_SAME_CHAIN,
-                    &the_clock
-                )
+            governance_message::take_decree(
+                wormhole::vaa::payload(&verified_vaa)
             );
         let cur = cursor::new(payload);
 
@@ -226,21 +275,20 @@ module token_bridge::register_chain_tests {
         let another_contract = external_address::take_bytes(&mut cur);
         assert!(another_contract != expected_contract, 0);
 
-        // You shall not pass!
-        register_chain(
-            &mut token_bridge_state,
-            &worm_state,
-            VAA_REGISTER_SAME_CHAIN,
-            &the_clock
-        );
-
-        // Clean up.
+        // No more payload to read.
         cursor::destroy_empty(cur);
-        return_states(token_bridge_state, worm_state);
-        return_clock(the_clock);
 
-        // Done.
-        test_scenario::end(my_scenario);
+        // Ignore effects.
+        test_scenario::next_tx(scenario, caller);
+
+        let ticket = register_chain::authorize_governance(&token_bridge_state);
+        let receipt =
+            verify_governance_vaa(scenario, verified_vaa, ticket);
+
+        // You shall not pass!
+        register_chain(&mut token_bridge_state, receipt);
+
+        abort 42
     }
 }
 

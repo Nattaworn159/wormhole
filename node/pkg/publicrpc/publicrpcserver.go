@@ -54,7 +54,7 @@ func (s *PublicrpcServer) GetLastHeartbeats(ctx context.Context, req *publicrpcv
 		for peerId, hb := range v {
 			resp.Entries = append(resp.Entries, &publicrpcv1.GetLastHeartbeatsResponse_Entry{
 				VerifiedGuardianAddr: addr.Hex(),
-				P2PNodeAddr:          peerId.Pretty(),
+				P2PNodeAddr:          peerId.String(),
 				RawHeartbeat:         hb,
 			})
 		}
@@ -103,11 +103,6 @@ func (s *PublicrpcServer) GetSignedVAA(ctx context.Context, req *publicrpcv1.Get
 	return &publicrpcv1.GetSignedVAAResponse{
 		VaaBytes: b,
 	}, nil
-}
-
-func (s *PublicrpcServer) GetSignedBatchVAA(ctx context.Context, req *publicrpcv1.GetSignedBatchVAARequest) (*publicrpcv1.GetSignedBatchVAAResponse, error) {
-	// TEMP - noop implementaion to satisfy inclusion requirement
-	return nil, status.Error(codes.Unimplemented, "not yet implemented")
 }
 
 func (s *PublicrpcServer) GetCurrentGuardianSet(ctx context.Context, req *publicrpcv1.GetCurrentGuardianSetRequest) (*publicrpcv1.GetCurrentGuardianSetResponse, error) {

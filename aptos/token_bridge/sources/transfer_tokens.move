@@ -2,6 +2,8 @@ module token_bridge::transfer_tokens {
     use aptos_framework::aptos_coin::{AptosCoin};
     use aptos_framework::coin::{Self, Coin};
 
+    use std::signer;
+
     use wormhole::u16::{Self, U16};
     use wormhole::external_address::{Self, ExternalAddress};
     use wormhole::emitter::{Self, EmitterCapability};
@@ -62,6 +64,54 @@ module token_bridge::transfer_tokens {
         )
     }
 
+    /// This struct stores the emitter capability for a given user account.
+    struct EmitterCapabilityStore has key {
+        emitter_cap: EmitterCapability,
+    }
+
+    #[view]
+    public fun is_emitter_registered(account: address): bool {
+        exists<EmitterCapabilityStore>(account)
+    }
+
+    public entry fun register_emitter(sender: &signer) {
+        if (is_emitter_registered(signer::address_of(sender))) {
+            return
+        };
+        let emitter_cap = wormhole::wormhole::register_emitter();
+        move_to<EmitterCapabilityStore>(
+            sender,
+            EmitterCapabilityStore { emitter_cap }
+        );
+    }
+
+    public entry fun transfer_tokens_with_payload_entry<CoinType>(
+        sender: &signer,
+        amount: u64,
+        recipient_chain: u64,
+        recipient: vector<u8>,
+        nonce: u64,
+        payload: vector<u8>
+    ) acquires EmitterCapabilityStore {
+        register_emitter(sender);
+
+        let EmitterCapabilityStore { emitter_cap } =
+            borrow_global<EmitterCapabilityStore>(signer::address_of(sender));
+
+        let coins = coin::withdraw<CoinType>(sender, amount);
+        let wormhole_fee = wormhole::state::get_message_fee();
+        let wormhole_fee_coins = coin::withdraw<AptosCoin>(sender, wormhole_fee);
+        transfer_tokens_with_payload<CoinType>(
+            emitter_cap,
+            coins,
+            wormhole_fee_coins,
+            u16::from_u64(recipient_chain),
+            external_address::from_bytes(recipient),
+            nonce,
+            payload
+        );
+    }
+
     public fun transfer_tokens_with_payload<CoinType>(
         emitter_cap: &EmitterCapability,
         coins: Coin<CoinType>,
@@ -100,7 +150,7 @@ module token_bridge::transfer_tokens {
         transfer_tokens_internal(coins, relayer_fee)
     }
 
-    // transfer a native or wraped token from sender to token_bridge
+    // transfer a native or wrapped token from sender to token_bridge
     fun transfer_tokens_internal<CoinType>(
         coins: Coin<CoinType>,
         relayer_fee: u64,
@@ -155,6 +205,7 @@ module token_bridge::transfer_tokens_test {
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::string::{utf8};
     use aptos_framework::aptos_coin::{Self, AptosCoin};
+    use aptos_framework::aptos_account;
 
     use token_bridge::token_bridge::{Self as bridge};
     use token_bridge::transfer_tokens;
@@ -168,7 +219,7 @@ module token_bridge::transfer_tokens_test {
 
     use wrapped_coin::coin::T;
 
-    /// Registration VAA for the etheruem token bridge 0xdeadbeef
+    /// Registration VAA for the ethereum token bridge 0xdeadbeef
     /// +------------------------------------------------------------------------------+
     /// | Wormhole VAA v1         | nonce: 1                | time: 1                  |
     /// | guardian set #0         | #23663022               | consistency: 0           |
@@ -223,7 +274,7 @@ module token_bridge::transfer_tokens_test {
         deployer: &signer,
     ) {
         // we initialise the bridge with zero fees to avoid having to mint fee
-        // tokens in these tests. The wormolhe fee handling is already tested
+        // tokens in these tests. The wormhole fee handling is already tested
         // in wormhole.move, so it's unnecessary here.
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         wormhole::wormhole_test::setup(0);
@@ -310,5 +361,37 @@ module token_bridge::transfer_tokens_test {
         // the coin has 6 decimals, so the amount doesn't get scaled
         assert!(normalized_amount::get_amount(normalized_amount) == 10000, 0);
         assert!(normalized_amount::get_amount(normalized_relayer_fee) == 500, 0);
+    }
+
+    // test transfer with payload entry
+    #[test(aptos_framework = @aptos_framework, token_bridge=@token_bridge, deployer=@deployer, user=@0xBEEF)]
+    fun test_transfer_with_payload(aptos_framework: &signer, token_bridge: &signer, deployer: &signer, user: &signer) {
+        setup(aptos_framework, token_bridge, deployer);
+
+        let my_coins = init_my_token(token_bridge, 10000);
+        aptos_account::deposit_coins(std::signer::address_of(user), my_coins);
+
+        transfer_tokens::transfer_tokens_with_payload_entry<MyCoin>(
+            user,
+            500,
+            2,
+            x"01",
+            10,
+            x"BEEFFACE"
+        );
+
+        assert!(coin::balance<MyCoin>(std::signer::address_of(user)) == 9500, 0);
+
+        // let's send again to make sure we can
+        transfer_tokens::transfer_tokens_with_payload_entry<MyCoin>(
+            user,
+            500,
+            2,
+            x"01",
+            10,
+            x"BEEFFACE"
+        );
+
+        assert!(coin::balance<MyCoin>(std::signer::address_of(user)) == 9000, 0);
     }
 }

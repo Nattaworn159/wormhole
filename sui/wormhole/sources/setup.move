@@ -3,17 +3,14 @@
 /// This module implements the mechanism to publish the Wormhole contract and
 /// initialize `State` as a shared object.
 module wormhole::setup {
+    use std::vector::{Self};
     use sui::object::{Self, UID};
     use sui::package::{Self, UpgradeCap};
     use sui::transfer::{Self};
     use sui::tx_context::{Self, TxContext};
 
+    use wormhole::cursor::{Self};
     use wormhole::state::{Self};
-
-    /// `UpgradeCap` is not as expected when initializing `State`.
-    const E_INVALID_UPGRADE_CAP: u64 = 0;
-    /// Build version for setup must only be `1`.
-    const E_INVALID_BUILD_VERSION: u64 = 1;
 
     /// Capability created at `init`, which will be destroyed once
     /// `init_and_share_state` is called. This ensures only the deployer can
@@ -43,72 +40,57 @@ module wormhole::setup {
         );
     }
 
+    #[allow(lint(share_owned))]
     /// Only the owner of the `DeployerCap` can call this method. This
     /// method destroys the capability and shares the `State` object.
-    public entry fun complete(
+    public fun complete(
         deployer: DeployerCap,
         upgrade_cap: UpgradeCap,
         governance_chain: u16,
         governance_contract: vector<u8>,
+        guardian_set_index: u32,
         initial_guardians: vector<vector<u8>>,
         guardian_set_seconds_to_live: u32,
         message_fee: u64,
         ctx: &mut TxContext
     ) {
-        let version = wormhole::version_control::version();
-        assert!(version == 1, E_INVALID_BUILD_VERSION);
-
-        assert_package_upgrade_cap<DeployerCap>(
+        wormhole::package_utils::assert_package_upgrade_cap<DeployerCap>(
             &upgrade_cap,
             package::compatible_policy(),
-            version
+            1
         );
 
         // Destroy deployer cap.
         let DeployerCap { id } = deployer;
         object::delete(id);
 
+        let guardians = {
+            let out = vector::empty();
+            let cur = cursor::new(initial_guardians);
+            while (!cursor::is_empty(&cur)) {
+                vector::push_back(
+                    &mut out,
+                    wormhole::guardian::new(cursor::poke(&mut cur))
+                );
+            };
+            cursor::destroy_empty(cur);
+            out
+        };
+
         // Share new state.
         transfer::public_share_object(
             state::new(
                 upgrade_cap,
                 governance_chain,
-                governance_contract,
-                initial_guardians,
+                wormhole::external_address::new_nonzero(
+                    wormhole::bytes32::from_bytes(governance_contract)
+                ),
+                guardian_set_index,
+                guardians,
                 guardian_set_seconds_to_live,
                 message_fee,
                 ctx
             )
-        );
-    }
-
-    /// Convenience method that can be used with any package that requires
-    /// `UpgradeCap` to have certain preconditions before it is considered
-    /// belonging to `T` object's package.
-    public fun assert_package_upgrade_cap<T>(
-        cap: &UpgradeCap,
-        expected_policy: u8,
-        expected_version: u64
-    ) {
-        let expected_package =
-            sui::address::from_bytes(
-                sui::hex::decode(
-                    std::ascii::into_bytes(
-                        std::type_name::get_address(
-                            &std::type_name::get<T>()
-                        )
-                    )
-                )
-            );
-        let cap_package =
-            object::id_to_address(&package::upgrade_package(cap));
-        assert!(
-            (
-                cap_package == expected_package &&
-                package::upgrade_policy(cap) == expected_policy &&
-                package::version(cap) == expected_version
-            ),
-            E_INVALID_UPGRADE_CAP
         );
     }
 }
@@ -131,7 +113,7 @@ module wormhole::setup_tests {
     use wormhole::wormhole_scenario::{person};
 
     #[test]
-    public fun test_init() {
+    fun test_init() {
         let deployer = person();
         let my_scenario = test_scenario::begin(deployer);
         let scenario = &mut my_scenario;
@@ -161,7 +143,7 @@ module wormhole::setup_tests {
     }
 
     #[test]
-    public fun test_complete() {
+    fun test_complete() {
         let deployer = person();
         let my_scenario = test_scenario::begin(deployer);
         let scenario = &mut my_scenario;
@@ -175,6 +157,7 @@ module wormhole::setup_tests {
         let governance_chain = 1234;
         let governance_contract =
             x"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let guardian_set_index = 0;
         let initial_guardians =
             vector[
                 x"1337133713371337133713371337133713371337",
@@ -206,6 +189,7 @@ module wormhole::setup_tests {
             upgrade_cap,
             governance_chain,
             governance_contract,
+            guardian_set_index,
             initial_guardians,
             guardian_set_seconds_to_live,
             message_fee,
@@ -247,7 +231,9 @@ module wormhole::setup_tests {
         );
 
         let guardians =
-            guardian_set::guardians(state::guardian_set_at(&worm_state, 0));
+            guardian_set::guardians(
+                state::guardian_set_at(&worm_state, 0)
+            );
         let num_guardians = vector::length(guardians);
         assert!(num_guardians == vector::length(&initial_guardians), 0);
 
@@ -285,8 +271,10 @@ module wormhole::setup_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = setup::E_INVALID_UPGRADE_CAP)]
-    public fun test_cannot_complete_invalid_upgrade_cap() {
+    #[expected_failure(
+        abort_code = wormhole::package_utils::E_INVALID_UPGRADE_CAP
+    )]
+    fun test_cannot_complete_invalid_upgrade_cap() {
         let deployer = person();
         let my_scenario = test_scenario::begin(deployer);
         let scenario = &mut my_scenario;
@@ -300,6 +288,7 @@ module wormhole::setup_tests {
         let governance_chain = 1234;
         let governance_contract =
             x"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let guardian_set_index = 0;
         let initial_guardians =
             vector[x"1337133713371337133713371337133713371337"];
         let guardian_set_seconds_to_live = 5678;
@@ -326,13 +315,13 @@ module wormhole::setup_tests {
             upgrade_cap,
             governance_chain,
             governance_contract,
+            guardian_set_index,
             initial_guardians,
             guardian_set_seconds_to_live,
             message_fee,
             test_scenario::ctx(scenario)
         );
 
-        // Done.
-        test_scenario::end(my_scenario);
+        abort 42
     }
 }

@@ -29,6 +29,12 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 		case *types.MsgInstantiateContract:
 			res, err := msgServer.InstantiateContract(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
+		case *types.MsgAddWasmInstantiateAllowlist:
+			res, err := msgServer.AddWasmInstantiateAllowlist(sdk.WrapSDKContext(ctx), msg)
+			return sdk.WrapServiceResult(ctx, res, err)
+		case *types.MsgDeleteWasmInstantiateAllowlist:
+			res, err := msgServer.DeleteWasmInstantiateAllowlist(sdk.WrapSDKContext(ctx), msg)
+			return sdk.WrapServiceResult(ctx, res, err)
 		case *types.MsgMigrateContract:
 			res, err := msgServer.MigrateContract(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
@@ -37,6 +43,9 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 			return sdk.WrapServiceResult(ctx, res, err)
 		case *types.MsgDeleteAllowlistEntryRequest:
 			res, err := msgServer.DeleteAllowlistEntry(sdk.WrapSDKContext(ctx), msg)
+			return sdk.WrapServiceResult(ctx, res, err)
+		case *types.MsgExecuteGatewayGovernanceVaa:
+			res, err := msgServer.ExecuteGatewayGovernanceVaa(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
 			// this line is used by starport scaffolding # 1
 		default:

@@ -8,22 +8,24 @@
 /// 3.  Upgrade.
 /// 4.  Commit upgrade.
 module wormhole::upgrade_contract {
-    use sui::clock::{Clock};
-    use sui::event::{Self};
-    use sui::object::{Self, ID};
+    use sui::object::{ID};
     use sui::package::{UpgradeReceipt, UpgradeTicket};
 
     use wormhole::bytes32::{Self, Bytes32};
-    use wormhole::consumed_vaas::{Self};
     use wormhole::cursor::{Self};
-    use wormhole::governance_message::{Self, GovernanceMessage};
+    use wormhole::governance_message::{Self, DecreeTicket, DecreeReceipt};
     use wormhole::state::{Self, State};
+
+    friend wormhole::migrate;
 
     /// Digest is all zeros.
     const E_DIGEST_ZERO_BYTES: u64 = 0;
+
     /// Specific governance payload ID (action) to complete upgrading the
     /// contract.
     const ACTION_UPGRADE_CONTRACT: u8 = 1;
+
+    struct GovernanceWitness has drop {}
 
     // Event reflecting package upgrade.
     struct ContractUpgraded has drop, copy {
@@ -35,33 +37,38 @@ module wormhole::upgrade_contract {
         digest: Bytes32
     }
 
+    public fun authorize_governance(
+        wormhole_state: &State
+    ): DecreeTicket<GovernanceWitness> {
+        governance_message::authorize_verify_local(
+            GovernanceWitness {},
+            state::governance_chain(wormhole_state),
+            state::governance_contract(wormhole_state),
+            state::governance_module(),
+            ACTION_UPGRADE_CONTRACT
+        )
+    }
+
     /// Redeem governance VAA to issue an `UpgradeTicket` for the upgrade given
     /// a contract upgrade VAA. This governance message is only relevant for Sui
     /// because a contract upgrade is only relevant to one particular network
     /// (in this case Sui), whose build digest is encoded in this message.
-    ///
-    /// NOTE: This method is guarded by a minimum build version check. This
-    /// method could break backward compatibility on an upgrade.
-    public fun upgrade_contract(
+    public fun authorize_upgrade(
         wormhole_state: &mut State,
-        vaa_buf: vector<u8>,
-        the_clock: &Clock
+        receipt: DecreeReceipt<GovernanceWitness>
     ): UpgradeTicket {
-        let msg =
-            governance_message::parse_and_verify_vaa(
-                wormhole_state,
-                vaa_buf,
-                the_clock
-            );
+        // NOTE: This is the only governance method that does not enforce
+        // current package checking when consuming VAA hashes. This is because
+        // upgrades are protected by the Sui VM, enforcing the latest package
+        // is the one performing the upgrade.
+        let consumed =
+            state::borrow_mut_consumed_vaas_unchecked(wormhole_state);
 
-        // Do not allow this VAA to be replayed.
-        consumed_vaas::consume(
-            state::borrow_mut_consumed_vaas(wormhole_state),
-            governance_message::vaa_hash(&msg)
-        );
+        // And consume.
+        let payload = governance_message::take_payload(consumed, receipt);
 
         // Proceed with processing new implementation version.
-        handle_upgrade_contract(wormhole_state, msg)
+        handle_upgrade_contract(wormhole_state, payload)
     }
 
     /// Finalize the upgrade that ran to produce the given `receipt`. This
@@ -71,33 +78,28 @@ module wormhole::upgrade_contract {
         self: &mut State,
         receipt: UpgradeReceipt,
     ) {
-        let latest_package_id = state::commit_upgrade(self, receipt);
+        let (old_contract, new_contract) = state::commit_upgrade(self, receipt);
 
         // Emit an event reflecting package ID change.
-        event::emit(
-            ContractUpgraded {
-                old_contract: object::id_from_address(@wormhole),
-                new_contract: latest_package_id
-            }
-        );
+        sui::event::emit(ContractUpgraded { old_contract, new_contract });
+    }
+
+    /// Privileged method only to be used by this module and `migrate` module.
+    ///
+    /// During migration, we make sure that the digest equals what we expect by
+    /// passing in the same VAA used to upgrade the package.
+    public(friend) fun take_digest(governance_payload: vector<u8>): Bytes32 {
+        // Deserialize the payload as the build digest.
+        let UpgradeContract { digest } = deserialize(governance_payload);
+
+        digest
     }
 
     fun handle_upgrade_contract(
         wormhole_state: &mut State,
-        msg: GovernanceMessage
+        payload: vector<u8>
     ): UpgradeTicket {
-        // Verify that this governance message is to update the Wormhole fee.
-        let governance_payload =
-            governance_message::take_local_action(
-                msg,
-                state::governance_module(),
-                ACTION_UPGRADE_CONTRACT
-            );
-
-        // Deserialize the payload as amount to change the Wormhole fee.
-        let UpgradeContract { digest } = deserialize(governance_payload);
-
-        state::authorize_upgrade(wormhole_state, digest)
+        state::authorize_upgrade(wormhole_state, take_digest(payload))
     }
 
     fun deserialize(payload: vector<u8>): UpgradeContract {

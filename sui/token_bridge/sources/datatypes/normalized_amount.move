@@ -29,6 +29,10 @@ module token_bridge::normalized_amount {
         value: u64
     }
 
+    public fun max_decimals(): u8 {
+        MAX_DECIMALS
+    }
+
     /// Utility function to cap decimal amount to 8.
     public fun cap_decimals(decimals: u8): u8 {
         if (decimals > MAX_DECIMALS) {
@@ -107,7 +111,7 @@ module token_bridge::normalized_amount_test {
     use token_bridge::normalized_amount::{Self};
 
     #[test]
-    public fun test_from_and_to_raw() {
+    fun test_from_and_to_raw() {
         // Use decimals > 8 to check truncation.
         let decimals = 9;
         let raw_amount = 12345678910111;
@@ -123,7 +127,7 @@ module token_bridge::normalized_amount_test {
     }
 
     #[test]
-    public fun test_take_bytes() {
+    fun test_take_bytes() {
         let cur =
             cursor::new(
                 x"000000000000000000000000000000000000000000000000ffffffffffffffff"
@@ -141,7 +145,7 @@ module token_bridge::normalized_amount_test {
 
     #[test]
     #[expected_failure(abort_code = wormhole::bytes32::E_U64_OVERFLOW)]
-    public fun test_cannot_take_bytes_overflow() {
+    fun test_cannot_take_bytes_overflow() {
         let encoded_overflow =
             x"0000000000000000000000000000000000000000000000010000000000000000";
 
@@ -158,7 +162,6 @@ module token_bridge::normalized_amount_test {
         // You shall not pass!
         normalized_amount::take_bytes(&mut cur);
 
-        // Clean up.
-        cursor::destroy_empty(cur);
+        abort 42
     }
 }

@@ -7,14 +7,14 @@ This readme describes the steps for building, verifying, and deploying Terra2 sm
 ## Verify Tilt
 
 Before building Terra contracts, ensure that the specific commit you will be
-building from passes in tilt. This that ensures basic functionality of the
+building from passes in tilt. This ensures the basic functionality of the
 Terra smart contracts that you are about to build and deploy.
 
 ## Build Contracts
 
 The following command can be used to build Terra2 contracts via Docker.
 
-Build Target Options: [`mainnet`|`testnet`|`devnet`|
+Build Target Options: [`mainnet`|`testnet`|`devnet`]
 
 These network names correspond to the naming convention used by wormhole
 elsewhere. This means that `mainnet` corresponds to Terra `mainnet`,
@@ -88,8 +88,8 @@ For each contract you wish to verify on-chain, you will need the following eleme
 Below is how to verify all three contracts:
 
 ```console
-./verify artifacts/wormhole.wasm NEW_BRIDGE_CODE_ID
-./verify artifacts/token_bridge.wasm NEW_TOKEN_BRIDGE_CODE_ID
+./verify artifacts/cw_wormhole.wasm NEW_BRIDGE_CODE_ID
+./verify artifacts/cw_token_bridge.wasm NEW_TOKEN_BRIDGE_CODE_ID
 ./verify artifacts/nft_bridge.wasm NEW_NFT_BRIDGE_CODE_ID
 ```
 
@@ -120,9 +120,11 @@ now be shared with the guardians to vote on.
 Once the guardians have reached quorum, the VAA may be submitted from any
 funded wallet: TODO - make this easier and more unified
 
+<!-- cspell:disable -->
 ```sh
 node main.js terra execute_governance_vaa <signed VAA (hex)> --rpc "https://lcd.terra.dev" --chain_id "columbus-5" --mnemonic "..." --token_bridge "terra10nmmwe8r3g99a9newtqa7a75xfgs2e8z87r2sf"
 ```
+<!-- cspell:enable -->
 
 ### Testnet
 
@@ -131,6 +133,8 @@ authority, so these don't have to go through governance.
 
 For example, to migrate the token bridge to 59614, run in `tools/`:
 
+<!-- cspell:disable -->
 ```sh
 node migrate_testnet.js --code_id 59614 --contract terra1pseddrv0yfsn76u4zxrjmtf45kdlmalswdv39a --mnemonic "..."
 ```
+<!-- cspell:enable -->

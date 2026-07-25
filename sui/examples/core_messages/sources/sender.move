@@ -16,7 +16,7 @@ module core_messages::sender {
     /// Register ourselves as a wormhole emitter. This gives back an
     /// `EmitterCap` which will be required to send messages through
     /// wormhole.
-    public entry fun init_with_params(
+    public fun init_with_params(
         wormhole_state: &WormholeState,
         ctx: &mut TxContext
     ) {
@@ -28,7 +28,7 @@ module core_messages::sender {
         );
     }
 
-    public entry fun send_message_entry(
+    public fun send_message_entry(
         state: &mut State,
         wormhole_state: &mut WormholeState,
         payload: vector<u8>,
@@ -44,6 +44,11 @@ module core_messages::sender {
         );
     }
 
+    /// NOTE: This is NOT the proper way of using the `prepare_message` and
+    /// `publish_message` workflow. This example app is meant for testing for
+    /// observing Wormhole messages via the guardian.
+    ///
+    /// See `publish_message` module for more info.
     public fun send_message(
         state: &mut State,
         wormhole_state: &mut WormholeState,
@@ -51,12 +56,17 @@ module core_messages::sender {
         the_clock: &Clock,
         ctx: &mut TxContext
     ): u64 {
-        wormhole::publish_message::publish_message(
+        use wormhole::publish_message::{prepare_message, publish_message};
+
+        // NOTE AGAIN: Integrators should NEVER call this within their contract.
+        publish_message(
             wormhole_state,
-            &mut state.emitter_cap,
-            0, // Set nonce to 0, intended for batch VAAs.
-            payload,
             coin::zero(ctx),
+            prepare_message(
+                &mut state.emitter_cap,
+                0, // Set nonce to 0, intended for batch VAAs.
+                payload
+            ),
             the_clock
         )
     }
@@ -94,7 +104,7 @@ module core_messages::sender_test {
         test_scenario::next_tx(scenario, admin);
         {
             let wormhole_state = take_state(scenario);
-            init_with_params(&mut wormhole_state, test_scenario::ctx(scenario));
+            init_with_params(&wormhole_state, test_scenario::ctx(scenario));
             return_state(wormhole_state);
         };
 

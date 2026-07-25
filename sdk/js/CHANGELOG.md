@@ -1,5 +1,206 @@
 # Changelog
 
+## 0.10.18
+
+Add Snaxchain testnet support
+Add Mantle and X Layer
+
+## 0.10.17
+
+Add Mantle mainnet support
+
+## 0.10.16
+
+Add X Layer mainnet support
+
+## 0.10.15
+
+Add Provenance to cosmwasm chains
+Add Scroll mainnet support
+Add Blast mainnet support
+
+## 0.10.14
+
+Support for move of relayer ethereum contracts
+Blast Sepolia support
+XLayer Sepolia support
+Linea Sepolia support
+Berachain Testnet support
+
+## 0.10.13
+
+Mantle Sepolia support
+
+## 0.10.12
+
+Polygon Sepolia support
+
+## 0.10.11
+
+### Changes
+
+Add Dymension to cosmwasm chains
+
+base64 encode payload being sent to injective token bridge
+
+### Removed
+
+getSignedBatchVAA, getSignedBatchVAAWithRetry
+
+## 0.10.10
+
+### Changes
+
+Added CCTP Sepolia chains support
+
+## 0.10.9
+
+### Changes
+
+Algorand: prevent creation of unnecessary transactions
+
+## 0.10.8
+
+### Added
+
+Holesky support
+
+## 0.10.7
+
+### Added
+
+Arbitrum on Sepolia support
+
+Base on Sepolia support
+
+Optimism on Sepolia support
+
+## 0.10.6
+
+### Added
+
+Celestia support
+
+Scroll testnet support
+
+### Changes
+
+Solana WrappedMeta deserialization fix
+
+## 0.10.5
+
+### Changes
+
+Auto relayer better status command
+
+## 0.10.4
+
+### Changes
+
+AutoRelayer: v1.1 Release
+
+Redeem on Algorand dynamic cost budget fix
+
+Fixes id check in token helper for sui
+
+## 0.10.3
+
+### Added
+
+Kujira chain support
+
+## 0.10.2
+
+### Added
+
+Transfer from Aptos with payload support
+
+### Changes
+
+transferFromAptos payload type changed from string to Uint8Array
+
+## 0.9.24
+
+### Changes
+
+Transfer from Sui with payload uses oldest EmitterCap _or_ creates a new one if none exist
+
+## 0.9.23
+
+### Changes
+
+Bumped algosdk to 2.4.0
+
+## 0.9.22
+
+### Added
+
+Base mainnet contract addresses
+
+## 0.9.21
+
+### Changes
+
+Relayer status function improvements
+
+Algorand changes for 3.16.2
+
+## 0.9.20
+
+### Added
+
+Generic relayer support
+
+### Changed
+
+Updated terra.js version
+
+## 0.9.18
+
+### Added
+
+Add support for Sei.
+
+### Changed
+
+injective parseSmartContractStateResponse fix
+
+## 0.9.17
+
+### Changed
+
+Normalize Sui types
+
+`unnormalizeSuiType` renamed to `trimSuiType`
+
+## 0.9.16
+
+### Changed
+
+Sui redeem fix
+
+## 0.9.15
+
+### Added
+
+Sui mainnet support
+
+## 0.9.14
+
+### Added
+
+Sei testnet support
+
+## 0.9.13
+
+### Added
+
+"sideEffects": false
+
+### Changed
+
+injective dependencies updated
+
 ## 0.9.12
 
 ### Added

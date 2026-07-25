@@ -34,7 +34,7 @@ jobs:
           kubectl config set-context ci --namespace=$DEPLOY_NS
           kubectl config use-context ci
 
-      - run: tilt ci -- --ci --namespace=$DEPLOY_NS --num=2
+      - run: tilt ci --timeout 45m0s -- --ci --namespace=$DEPLOY_NS --num=2
         timeout-minutes: 60
 
       # Clean up k8s resources
@@ -43,16 +43,16 @@ jobs:
 
   # Verify whether the Makefile builds the node (no dependencies other than Go)
   node:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.19.7"
+          go-version: "1.23.3"
       - run: make node
 
   algorand:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v3
@@ -62,27 +62,43 @@ jobs:
       - run: cd algorand && make test
 
   ethereum:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2
         with:
           node-version: "16"
-      - run: cd ethereum && ../scripts/install-foundry
-      - run: cd ethereum && PATH=$PATH:$HOME/.foundry/bin/ make test
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - run: cd ethereum && make test-push0 && make test
+
+  relayer-ethereum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: "16"
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - run: cd relayer/ethereum && make test-push0 && make test
 
   ethereum-upgrade:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2
         with:
           node-version: "16"
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
       - run: cd clients/js && make install
       - run: cd ethereum && make test-upgrade
 
   solana:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    container: ghcr.io/wormhole-foundation/solana:1.10.31@sha256:d31e8db926a1d3fbaa9d9211d9979023692614b7b64912651aba0383e8c01bad
+
     env:
       RUSTFLAGS: -Dwarnings
       EMITTER_ADDRESS: CiByUvEcx7w2HA4VHcPCBUAFQ73Won9kB36zW9VjirSr
@@ -149,25 +165,6 @@ jobs:
         run: cargo clippy --workspace --tests --manifest-path solana/Cargo.toml
           --features "nft-bridge/instructions token-bridge/instructions wormhole-bridge-solana/instructions"
 
-      - name: Cache solana tools
-        id: cache-solana
-        uses: actions/cache@v3
-        env:
-          cache-name: solana-tools
-        with:
-          path: |
-            ~/.local/share/solana/install/
-            ~/.cache/solana/
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ steps.solana.outputs.version }}
-
-      - if: ${{ steps.cache-solana.outputs.cache-hit != 'true' }}
-        name: Install solana tools
-        env:
-          SOLANA_VERSION: ${{ steps.solana.outputs.version }}
-        run: |
-          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)"
-          ~/.local/share/solana/install/active_release/bin/sdk/bpf/scripts/install.sh
-
       - name: Run unit tests
         env:
           RUST_BACKTRACE: "1"
@@ -177,7 +174,7 @@ jobs:
           export PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
 
           mkdir -p "${BPF_OUT_DIR}"
-          cp modules/token_bridge/token-metadata/spl_token_metadata.so "${BPF_OUT_DIR}"
+          cp external/mpl_token_metadata.so "${BPF_OUT_DIR}"
 
           BPF_PACKAGES=(
             bridge/program/Cargo.toml
@@ -189,10 +186,11 @@ jobs:
           done
 
           cargo test --workspace --features "nft-bridge/instructions token-bridge/instructions wormhole-bridge-solana/instructions"
+        shell: bash
 
   aptos:
     name: Aptos
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash
@@ -206,7 +204,7 @@ jobs:
 
   sui:
     name: Sui
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -215,7 +213,7 @@ jobs:
         run: cd sui && make test-docker
 
   terra:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2
@@ -223,7 +221,7 @@ jobs:
           node-version: "16"
       - run: cd terra && make test
   terra-2:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2
@@ -231,7 +229,7 @@ jobs:
           node-version: "16"
       - run: cd cosmwasm/deployment/terra2 && make test
   cosmwasm:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2
@@ -240,37 +238,40 @@ jobs:
       - run: cd cosmwasm && make test
 
   cli:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2
         with:
-          node-version: "16"
-      - run: cd clients/js && make test
+          node-version: "20"
+      - run: |
+          cd clients/js && make test
+          make docs
+          git diff --name-only --exit-code && echo "✅ Generated CLI docs match committed docs" || (echo "❌ Generated CLI docs differs from committed CLI docs, run \`make docs\` and commit the result" >&2 && exit 1)
 
   # Verify wormhole chain unit tests
   wormchain:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.19.7"
+          go-version: "1.19.9"
       - run: |
           cd wormchain
           make proto -B
           git diff --name-only --exit-code && echo "✅ Generated proto matches committed proto" || (echo "❌ Generated proto differs from committed proto, run \`make proto -B\` and commit the result" >&2 && exit 1)
           make test
 
-  # Verify go sdk unit tests
+  # Verify go sdk unit/fuzz tests
   sdk_vaa:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.19.7"
-      - run: cd sdk/vaa && go test
+          go-version: "1.23.3"
+      - run: cd sdk/vaa && go test && go test -v -fuzz FuzzCalculateQuorum -run FuzzCalculateQuorum -fuzztime 15s
 
   # Run Go linters
   node-lint:
@@ -286,20 +287,33 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.19.7"
+          go-version: "1.23.3"
       - name: Install formatter
-        run: go install golang.org/x/tools/cmd/goimports@latest
+        run: go install golang.org/x/tools/cmd/goimports@v0.8.0
       - name: Formatting checks
         run: ./scripts/lint.sh -l -g format
       - name: Install linters
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.46.2
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.60.1
       - name: Run linters
-        run: make generate && ./scripts/lint.sh -g lint
+        run: make generate && golangci-lint --version && ./scripts/lint.sh -g lint
       - name: Ensure generated proto matches
         run: |
           rm -rf node/pkg/proto
           docker build --target go-export -f Dockerfile.proto -o type=local,dest=node .
           git diff --name-only --exit-code && echo "✅ Generated proto matches committed proto" || (echo "❌ Generated proto differs from committed proto, run \`rm -rf node/pkg/proto && docker build --target go-export -f Dockerfile.proto -o type=local,dest=node .\` and commit the result" >&2 && exit 1)
+
+  spellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned version of the v6 tag, which is a lightweight and hence mutable tag
+      - uses: streetsidesoftware/cspell-action@214db1e3138f326d33b7a6a51c92852e89ab0618
+        with:
+          # For now, only lint markdown files
+          files: "**/*.md"
+          inline: warning
+          # Only check files in the PR or push
+          incremental_files_only: true
 
   # Run Go tests
   node-tests:
@@ -315,22 +329,26 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.19.7"
+          go-version: "1.23.3"
       # The go-ethereum and celo-blockchain packages both implement secp256k1 using the exact same header, but that causes duplicate symbols.
       - name: Run golang tests
-        run: cd node && go test -v -race -ldflags '-extldflags "-Wl,--allow-multiple-definition" ' ./...
+        run: cd node && go test -v -timeout 5m -race ./...
 
   # Run Rust lints and tests
   rust-lint-and-tests:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env:
       RUSTFLAGS: -Dwarnings
     strategy:
       matrix:
         manifest:
-          - cosmwasm/Cargo.toml
-          - terra/Cargo.toml
-          - sdk/rust/Cargo.toml
+          - path: cosmwasm/Cargo.toml
+            args: "--workspace --locked"
+          - path: terra/Cargo.toml
+            args: "--workspace --locked"
+          - path: sdk/rust/Cargo.toml
+            args: "--all-features --all-targets"
+    name: rust-lint-and-tests (${{ matrix.manifest.path }})
     steps:
       - name: Check out source
         uses: actions/checkout@v3
@@ -344,7 +362,7 @@ jobs:
       - name: Create cache key
         id: cachekey
         env:
-          MANIFEST: ${{ matrix.manifest }}
+          MANIFEST: ${{ matrix.manifest.path }}
         run: |
           LOCKFILE="$(dirname "${MANIFEST}")/Cargo.lock"
           NAME="${MANIFEST%%/*}"
@@ -358,20 +376,16 @@ jobs:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-build-${{ steps.cachekey.outputs.name }}-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
-            ${{ runner.os }}-build-${{ matrix.manifest }}-
+            ${{ runner.os }}-build-${{ matrix.manifest.path }}-
 
       - name: Run `rustfmt`
-        env:
-          MANIFEST: ${{ matrix.manifest }}
-        # In its infinite wisdom, `cargo fmt --all` will also format path-based dependencies so
-        # instead we have to manually format each ".rs" file.
-        run: find "$(dirname "${MANIFEST}")" -name '*.rs' -exec rustfmt --check {} +
+        run: cd $(dirname ${{ matrix.manifest.path }}) && cargo fmt --check
 
       - name: Run `cargo clippy`
-        run: cargo clippy --workspace --tests --locked --manifest-path ${{ matrix.manifest }}
+        run: cargo clippy ${{ matrix.manifest.args }} --tests --manifest-path ${{ matrix.manifest.path }}
 
       - name: Run unit tests
-        run: cargo test --workspace --locked --manifest-path ${{ matrix.manifest }}
+        run: cargo test ${{ matrix.manifest.args }} --manifest-path ${{ matrix.manifest.path }}
 
   docker:
     runs-on: ubuntu-latest
@@ -387,3 +401,11 @@ jobs:
         uses: actions/checkout@v2
       - run: chmod 755 ./scripts/check-npm-package-scopes.sh
       - run: ./scripts/check-npm-package-scopes.sh
+  prettier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - run: npx prettier@2.3.2 --check ./clients/js/src ./sdk/js/src

@@ -1,53 +1,72 @@
 // SPDX-License-Identifier: Apache 2
 
-/// This module implements dynamic field keys as empty structs. These keys with
-/// `RequiredVersion` are used to determine minimum build requirements for
-/// particular Token Bridge methods and breaking backward compatibility for
-/// these methods if an upgrade requires the latest upgrade version for its
-/// functionality.
+/// This module implements dynamic field keys as empty structs. These keys are
+/// used to determine the latest version for this build. If the current version
+/// is not this build's, then paths through the `state` module will abort.
 ///
-/// See `wormhole::required_version` and `token_bridge::state` for more info.
+/// See `token_bridge::state` and `wormhole::package_utils` for more info.
 module token_bridge::version_control {
-    /// This value tracks the current version of the Token Bridge version. We
-    /// are placing this constant value at the top, which goes against Move
-    /// style guides so that we bring special attention to changing this value
-    /// when a new implementation is built for a contract upgrade.
-    const CURRENT_BUILD_VERSION: u64 = 1;
+    ////////////////////////////////////////////////////////////////////////////
+    //
+    //  Hard-coded Version Control
+    //
+    //  Before upgrading, please set the types for `current_version` and
+    //  `previous_version` to match the correct types (current being the latest
+    //  version reflecting this build).
+    //
+    ////////////////////////////////////////////////////////////////////////////
 
-    /// Key used to check minimum version requirement for `attest_token` module.
-    struct AttestToken {}
+    public(friend) fun current_version(): V__0_2_0 {
+       V__0_2_0 {}
+    }
 
-    /// Key used to check minimum version requirement for `complete_transfer`
-    /// module.
-    struct CompleteTransfer {}
+    #[test_only]
+    public fun current_version_test_only(): V__0_2_0 {
+        current_version()
+    }
 
-    /// Key used to check minimum version requirement for
-    /// `complete_transfer_with_payload` module.
-    struct CompleteTransferWithPayload {}
+    public(friend) fun previous_version(): V__DUMMY {
+        V__DUMMY {}
+    }
 
-    /// Key used to check minimum version requirement for `create_wrapped`
-    /// module.
-    struct CreateWrapped {}
+    #[test_only]
+    public fun previous_version_test_only(): V__DUMMY {
+        previous_version()
+    }
 
-    /// Key used to check minimum version requirement for `register_chain`
-    /// module.
-    struct RegisterChain {}
+    ////////////////////////////////////////////////////////////////////////////
+    //
+    //  Change Log
+    //
+    //  Please write release notes as doc strings for each version struct. These
+    //  notes will be our attempt at tracking upgrades. Wish us luck.
+    //
+    ////////////////////////////////////////////////////////////////////////////
 
-    /// Key used to check minimum version requirement for `transfer_tokens`
-    /// module.
-    struct TransferTokens {}
+    /// First published package on Sui mainnet.
+    struct V__0_2_0 has store, drop, copy {}
 
-    /// Key used to check minimum version requirement for
-    /// `transfer_tokens_with_payload` module.
-    struct TransferTokensWithPayload {}
+    // Dummy.
+    struct V__DUMMY has store, drop, copy {}
 
-    /// Key used to check minimum version requirement for `vaa` module.
-    struct Vaa {}
+    ////////////////////////////////////////////////////////////////////////////
+    //
+    //  Implementation and Test-Only Methods
+    //
+    ////////////////////////////////////////////////////////////////////////////
 
-    /// Return const value `CURRENT_BUILD_VERSION` for this particular build.
-    /// This value is used to determine whether this implementation meets
-    /// minimum requirements for various Wormhole methods required by `State`.
-    public fun version(): u64 {
-        CURRENT_BUILD_VERSION
+    friend token_bridge::state;
+
+    #[test_only]
+    public fun dummy(): V__DUMMY {
+        V__DUMMY {}
+    }
+
+    #[test_only]
+    struct V__MIGRATED has store, drop, copy {}
+
+    #[test_only]
+    public fun next_version(): V__MIGRATED {
+        V__MIGRATED {}
     }
 }

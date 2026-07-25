@@ -1,31 +1,30 @@
-FROM ghcr.io/wormhole-foundation/sui:0.31.0_2@sha256:64c47edd2ab6e6146c07e8835bb9e6d56bb64b4023903e9ff00205cafbeb0fc8 as sui
+FROM cli-gen AS cli-export
+FROM const-gen AS const-export
+FROM ghcr.io/wormhole-foundation/sui:1.19.1-mainnet@sha256:97e2e62d43262883b7a5bed5c9a9dd83d766a00a9476473eb275948fb53d376e AS sui
 
-RUN dnf -y install make git npm
+# initial run
+# COPY sui/devnet/genesis_config genesis_config
+# RUN sui genesis -f --from-config genesis_config
 
-COPY sui/README.md sui/cert.pem* /certs/
-RUN if [ -e /certs/cert.pem ]; then cp /certs/cert.pem /etc/ssl/certs/ca-certificates.crt; fi
-RUN if [ -e /certs/cert.pem ]; then git config --global http.sslCAInfo /certs/cert.pem; fi
-
-RUN sui genesis -f
-
+# subsequent runs after committing files from /root/.sui/sui_config/
 COPY sui/devnet/ /root/.sui/sui_config/
-
-# Build CLI, TODO(aki): move this to base image before merging into main
-RUN npm install -g n typescript ts-node
-RUN n stable
-COPY clients/js /tmp/clients/js
-WORKDIR /tmp/clients/js
-RUN make install
 
 WORKDIR /tmp
 
 COPY sui/scripts/ scripts
 COPY sui/wormhole/ wormhole
 COPY sui/token_bridge/ token_bridge
-COPY sui/testing/ testing
 COPY sui/examples/ examples
 COPY sui/Makefile Makefile
-COPY sui/.env* .
+
+# Copy .env and CLI
+COPY --from=const-export .env .env
+COPY --from=cli-export clients/js /cli
+
+# Link `worm`
+WORKDIR /cli
+
+RUN npm link
 
 FROM sui AS tests
 

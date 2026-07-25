@@ -1,13 +1,15 @@
-# first build the image
+# build the image and tag it appropriately
 
-cd ..; DOCKER_BUILDKIT=1 docker build --no-cache --progress plain -f sui/Dockerfile.base -t sui .
+<!-- cspell:disable -->
 
-# tag the image with the appropriate version
+```bash
+cd .. && docker buildx build --platform linux/amd64,linux/arm64 -f sui/Dockerfile.base -t ghcr.io/wormhole-foundation/sui:1.19.1-mainnet .
+```
 
-docker tag sui:latest ghcr.io/wormhole-foundation/sui:0.31.0_2
+<!-- cspell:enable -->
 
 # push to ghcr
 
-docker push ghcr.io/wormhole-foundation/sui:0.31.0_2
-
-echo remember to update both Dockerfile and Dockerfile.export
+```bash
+docker push ghcr.io/wormhole-foundation/sui:1.19.1-mainnet
+```

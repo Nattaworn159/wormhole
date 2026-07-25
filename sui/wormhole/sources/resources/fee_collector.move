@@ -11,8 +11,6 @@ module wormhole::fee_collector {
 
     /// Amount deposited is not exactly the amount configured.
     const E_INCORRECT_FEE: u64 = 0;
-    /// Cannot withdraw more than the balance collected.
-    const E_WITHDRAW_EXCEEDS_BALANCE: u64 = 1;
 
     /// Container for configured `fee_amount` and `balance` of SUI collected.
     struct FeeCollector has store {
@@ -144,8 +142,7 @@ module wormhole::fee_collector_tests {
         let fee = coin::mint_for_testing(fee_amount + 1, ctx);
         fee_collector::deposit(&mut collector, fee);
 
-        // Shouldn't get here. But we need to clean up anyway.
-        fee_collector::destroy(collector);
+        abort 42
     }
 
     #[test]
@@ -167,6 +164,7 @@ module wormhole::fee_collector_tests {
 
         // Shouldn't get here. But we need to clean up anyway.
         coin::burn_for_testing(withdrawn);
-        fee_collector::destroy(collector);
+
+        abort 42
     }
 }

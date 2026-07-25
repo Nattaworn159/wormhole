@@ -9,8 +9,8 @@ use accountant::state::{
 use cosmwasm_std::Uint256;
 use global_accountant::msg::TransferStatus;
 use helpers::*;
-use wormhole::{token::Message, vaa::Body, Address, Amount};
 use wormhole_bindings::fake;
+use wormhole_sdk::{token::Message, vaa::Body, Address, Amount};
 
 fn create_accounts(wh: &fake::WormholeKeeper, contract: &mut Contract, count: usize) {
     let mut s = 0;
@@ -24,7 +24,7 @@ fn create_accounts(wh: &fake::WormholeKeeper, contract: &mut Contract, count: us
                 token_address: [i as u8; 32].into(),
                 kind: Kind::Add,
                 amount: Uint256::from(j as u128),
-                reason: "create_accounts".try_into().unwrap(),
+                reason: "create_accounts".into(),
             };
 
             contract.modify_balance(m, wh).unwrap();
@@ -97,7 +97,7 @@ pub fn create_modifications(
             token_address: [i as u8; 32].into(),
             kind: Kind::Add,
             amount: Uint256::from(i as u128),
-            reason: format!("{i}").as_str().try_into().unwrap(),
+            reason: format!("{i}").as_str().into(),
         };
 
         contract.modify_balance(m.clone(), wh).unwrap();

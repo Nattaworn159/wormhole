@@ -26,13 +26,13 @@ build/wormchaind: cmd/wormchaind/main.go $(GO_FILES)
 	go build -v $(BUILD_FLAGS) -tags ledger -o $@ $<
 	cp "$@" "$@"-"$(VERSION)"
 
-proto: $(PROTO_FILES)
-	DOCKER_BUILDKIT=1 docker build --target go-export -f Dockerfile.proto -o type=local,dest=. ..
+# proto: $(PROTO_FILES)
+# 	DOCKER_BUILDKIT=1 docker build --target go-export -f Dockerfile.proto -o type=local,dest=. ..
 
-vue: $(GO_FILES) proto
-	mkdir -p $@
-	touch -m $@
-	DOCKER_BUILDKIT=1 docker build --target vue-export -f Dockerfile.proto -o type=local,dest=. ..
+# vue: $(GO_FILES) proto
+# 	mkdir -p $@
+# 	touch -m $@
+# 	DOCKER_BUILDKIT=1 docker build --target vue-export -f Dockerfile.proto -o type=local,dest=. ..
 
 # For now this is a phony target so we just rebuild it each time instead of
 # tracking dependencies
@@ -78,3 +78,52 @@ bootstrap:
 clean:
 	rm -rf build/wormchaind build/wormchaind-* build/**/*.db build/**/*.wal vue
 	echo "{\"height\":\"0\",\"round\":0,\"step\":0}" > build/data/priv_validator_state.json
+
+#####################
+## INTERCHAINTESTS ##
+#####################
+
+# Generate Wormchain Image
+local-image: build/wormchaind
+	docker build -t wormchain:local -f Dockerfile.ict ..
+
+# Individual Tests ($$ is interpreted as $)
+rm-testcache:
+	go clean -testcache
+.PHONY: rm-testcache
+
+ictest-cancel-upgrade: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestCancelUpgrade$$ ./...
+.PHONY: ictest-cancel-upgrade
+
+ictest-malformed-payload: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestMalformedPayload$$ ./...
+.PHONY: ictest-malformed-payload
+
+ictest-slashing-params-update-vaa: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestSlashingParamsUpdateVaa$$ ./...
+.PHONY: ictest-slashing-params-update-vaa
+
+ictest-upgrade-failure: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestUpgradeFailure$$ ./...
+.PHONY: ictest-upgrade-failure
+
+ictest-upgrade: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestUpgrade$$ ./...
+.PHONY: ictest-upgrade
+
+ictest-wormchain: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestWormchain$$ ./...
+.PHONY: ictest-wormchain
+
+ictest-ibc-receiver: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestIbcReceiver ./...
+.PHONY: ictest-ibc-receiver
+
+ictest-cw-wormhole: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestCWWormhole ./...
+.PHONY: ictest-cw-wormhole
+
+ictest-validator-hotswap: rm-testcache
+	cd interchaintest && go test -race -v -run ^TestValidatorHotswap$$ ./...
+.PHONY: ictest-validator-hotswap

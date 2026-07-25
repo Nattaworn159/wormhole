@@ -13,15 +13,18 @@ module wormhole::wormhole_scenario {
     use sui::package::{UpgradeCap};
     use sui::test_scenario::{Self, Scenario};
 
+    use wormhole::emitter::{EmitterCap};
+    use wormhole::governance_message::{Self, DecreeTicket, DecreeReceipt};
     use wormhole::setup::{Self, DeployerCap};
     use wormhole::state::{Self, State};
     use wormhole::vaa::{Self, VAA};
-    use wormhole::version_control::{Self as control};
 
     const DEPLOYER: address = @0xDEADBEEF;
     const WALLET_1: address = @0xB0B1;
     const WALLET_2: address = @0xB0B2;
     const WALLET_3: address = @0xB0B3;
+    const VAA_VERIFIER: address = @0xD00D;
+    const EMITTER_MAKER: address = @0xFEED;
 
     /// Set up Wormhole with any guardian pubkeys. For most testing purposes,
     /// please use `set_up_wormhole` which only uses one guardian.
@@ -58,6 +61,7 @@ module wormhole::wormhole_scenario {
             let governance_chain = 1;
             let governance_contract =
                 x"0000000000000000000000000000000000000000000000000000000000000004";
+            let guardian_set_index = 0;
             let guardian_set_seconds_to_live = 420;
 
             // Share `State`.
@@ -68,6 +72,7 @@ module wormhole::wormhole_scenario {
                 upgrade_cap,
                 governance_chain,
                 governance_contract,
+                guardian_set_index,
                 initial_guardians,
                 guardian_set_seconds_to_live,
                 message_fee,
@@ -92,23 +97,14 @@ module wormhole::wormhole_scenario {
     /// Perform an upgrade (which just upticks the current version of what the
     /// `State` believes is true).
     public fun upgrade_wormhole(scenario: &mut Scenario) {
-        use wormhole::migrate::{migrate};
-
         // Clean up from activity prior.
         test_scenario::next_tx(scenario, person());
 
-        let worm_state = test_scenario::take_shared<State>(scenario);
+        let worm_state = take_state(scenario);
         state::test_upgrade(&mut worm_state);
-        assert!(
-            state::current_version(&worm_state) > control::version(),
-            0
-        );
-
-        // Call `migrate` to wrap things up.
-        migrate(&mut worm_state);
 
         // Clean up.
-        test_scenario::return_shared(worm_state);
+        return_state(worm_state);
     }
 
     /// Address of wallet that published Wormhole contract.
@@ -165,6 +161,8 @@ module wormhole::wormhole_scenario {
         scenario: &mut Scenario,
         vaa_buf: vector<u8>
     ): VAA {
+        test_scenario::next_tx(scenario, VAA_VERIFIER);
+
         let the_clock = take_clock(scenario);
         let worm_state = take_state(scenario);
 
@@ -182,11 +180,38 @@ module wormhole::wormhole_scenario {
         out
     }
 
-    public fun parse_verify_and_take_vaa_payload(
+    public fun verify_governance_vaa<T>(
         scenario: &mut Scenario,
-        vaa_buf: vector<u8>
-    ): vector<u8> {
-        vaa::take_payload(parse_and_verify_vaa(scenario, vaa_buf))
+        verified_vaa: VAA,
+        ticket: DecreeTicket<T>
+    ): DecreeReceipt<T> {
+        test_scenario::next_tx(scenario, VAA_VERIFIER);
+
+        let worm_state = take_state(scenario);
+
+        let receipt =
+            governance_message::verify_vaa(&worm_state, verified_vaa, ticket);
+
+        // Clean up.
+        return_state(worm_state);
+
+        receipt
+    }
+
+    public fun new_emitter(
+        scenario: &mut Scenario
+    ): EmitterCap {
+        test_scenario::next_tx(scenario, EMITTER_MAKER);
+
+        let worm_state = take_state(scenario);
+
+        let emitter =
+            wormhole::emitter::new(&worm_state, test_scenario::ctx(scenario));
+
+        // Clean up.
+        return_state(worm_state);
+
+        emitter
     }
 
     public fun take_clock(scenario: &mut Scenario): Clock {

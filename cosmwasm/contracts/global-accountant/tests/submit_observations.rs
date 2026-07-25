@@ -7,12 +7,12 @@ use cosmwasm_std::{from_binary, to_binary, Binary, Event, Uint256};
 use cw_multi_test::AppResponse;
 use global_accountant::msg::{Observation, ObservationStatus, SubmitObservationResponse};
 use helpers::*;
-use wormhole::{
+use wormhole_bindings::fake;
+use wormhole_sdk::{
     token::Message,
     vaa::{Body, Header},
     Address, Amount,
 };
-use wormhole_bindings::fake;
 
 fn set_up(count: usize) -> (Vec<Message>, Vec<Observation>) {
     let mut txs = Vec::with_capacity(count);
@@ -538,7 +538,7 @@ fn missing_native_account() {
         token_address: token_address.into(),
         kind: Kind::Add,
         amount: Uint256::new(amount.0),
-        reason: "fake wrapped balance for testing".try_into().unwrap(),
+        reason: "fake wrapped balance for testing".into(),
     };
     contract.modify_balance(m, &wh).unwrap();
 
@@ -657,7 +657,7 @@ fn wrapped_to_wrapped() {
         token_address: token_address.into(),
         kind: Kind::Add,
         amount: Uint256::new(amount.0),
-        reason: "fake wrapped balance for testing".try_into().unwrap(),
+        reason: "fake wrapped balance for testing".into(),
     };
     contract.modify_balance(m, &wh).unwrap();
 

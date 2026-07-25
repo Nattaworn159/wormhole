@@ -14,10 +14,11 @@ module token_bridge::transfer_with_payload {
     use sui::object::{Self, ID};
     use wormhole::bytes::{Self};
     use wormhole::cursor::{Self};
-    use wormhole::emitter::{EmitterCap};
     use wormhole::external_address::{Self, ExternalAddress};
 
     use token_bridge::normalized_amount::{Self, NormalizedAmount};
+
+    friend token_bridge::transfer_tokens_with_payload;
 
     /// Message payload is not `TransferWithPayload`.
     const E_INVALID_PAYLOAD: u64 = 0;
@@ -47,9 +48,10 @@ module token_bridge::transfer_with_payload {
         payload: vector<u8>,
     }
 
-    /// Create new `TransferWithPayload` using `EmitterCap` as the sender.
-    public fun new_from_emitter(
-        emitter_cap: &EmitterCap,
+    /// Create new `TransferWithPayload` using a Token Bridge integrator's
+    /// emitter cap ID as the sender.
+    public(friend) fun new(
+        sender: ID,
         amount: NormalizedAmount,
         token_address: ExternalAddress,
         token_chain: u16,
@@ -63,9 +65,30 @@ module token_bridge::transfer_with_payload {
             token_chain,
             redeemer,
             redeemer_chain,
-            sender: external_address::from_id(object::id((emitter_cap))),
+            sender: external_address::from_id(sender),
             payload
         }
+    }
+
+    #[test_only]
+    public fun new_test_only(
+        sender: ID,
+        amount: NormalizedAmount,
+        token_address: ExternalAddress,
+        token_chain: u16,
+        redeemer: ExternalAddress,
+        redeemer_chain: u16,
+        payload: vector<u8>
+    ): TransferWithPayload {
+        new(
+            sender,
+            amount,
+            token_address,
+            token_chain,
+            redeemer,
+            redeemer_chain,
+            payload
+        )
     }
 
     /// Destroy `TransferWithPayload` and take only its payload.
@@ -204,8 +227,8 @@ module token_bridge::transfer_with_payload_tests {
         let payload = b"All your base are belong to us.";
 
         let new_transfer =
-            transfer_with_payload::new_from_emitter(
-                &emitter_cap,
+            transfer_with_payload::new_test_only(
+                object::id(&emitter_cap),
                 amount,
                 token_address,
                 token_chain,
@@ -252,11 +275,11 @@ module token_bridge::transfer_with_payload_tests {
         assert!(serialized == expected_serialized, 0);
 
         // Clean up.
-        emitter::destroy(emitter_cap);
+        emitter::destroy_test_only(emitter_cap);
     }
 
     #[test]
-    public fun test_deserialize() {
+    fun test_deserialize() {
         let expected_amount = normalized_amount::from_raw(234567890, 8);
         let expected_token_address = external_address::from_address(@0xbeef);
         let expected_token_chain = 1;
@@ -309,7 +332,7 @@ module token_bridge::transfer_with_payload_tests {
 
     #[test]
     #[expected_failure(abort_code = transfer_with_payload::E_INVALID_PAYLOAD)]
-    public fun test_cannot_deserialize_invalid_payload() {
+    fun test_cannot_deserialize_invalid_payload() {
         let invalid_payload = token_bridge::dummy_message::encoded_transfer();
 
         // Show that the first byte is not the expected payload ID.
@@ -323,5 +346,7 @@ module token_bridge::transfer_with_payload_tests {
 
         // Clean up.
         transfer_with_payload::destroy(parsed);
+
+        abort 42
     }
 }

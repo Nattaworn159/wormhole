@@ -1,3 +1,4 @@
+//nolint:noctx // this is a hack
 package main
 
 import (
@@ -236,7 +237,7 @@ func EventsToMessagePublications(contract string, txHash string, events []gjson.
 			continue
 		}
 		messagePublication := &common.MessagePublication{
-			TxHash:           txHashValue,
+			TxID:             txHashValue.Bytes(),
 			Timestamp:        time.Unix(blockTimeInt, 0),
 			Nonce:            uint32(nonceInt),
 			Sequence:         sequenceInt,
@@ -401,7 +402,7 @@ func main() {
 						}
 					}
 				}
-				if seq <= uint64(lowest) {
+				if seq <= lowest {
 					// We are done
 					log.Println("Finished!")
 					return

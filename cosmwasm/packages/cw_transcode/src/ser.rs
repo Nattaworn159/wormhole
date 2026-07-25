@@ -20,6 +20,12 @@ impl Serializer {
     }
 }
 
+impl Default for Serializer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> serde::Serializer for &'a mut Serializer {
     type Ok = ();
     type Error = Error;
@@ -117,9 +123,9 @@ impl<'a> serde::Serializer for &'a mut Serializer {
     }
 
     #[inline]
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
+    fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         value.serialize(self)
     }
@@ -153,19 +159,15 @@ impl<'a> serde::Serializer for &'a mut Serializer {
     }
 
     #[inline]
-    fn serialize_newtype_struct<T: ?Sized>(
-        self,
-        _: &'static str,
-        _: &T,
-    ) -> Result<Self::Ok, Self::Error>
+    fn serialize_newtype_struct<T>(self, _: &'static str, _: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         Err(Error::NotAStruct)
     }
 
     #[inline]
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T>(
         self,
         _: &'static str,
         _variant_index: u32,
@@ -173,7 +175,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
         _: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         Err(Error::NotAStruct)
     }
@@ -246,9 +248,9 @@ impl<'a> serde::Serializer for &'a mut Serializer {
     }
 
     #[inline]
-    fn collect_str<T: ?Sized>(self, _: &T) -> Result<Self::Ok, Self::Error>
+    fn collect_str<T>(self, _: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Display,
+        T: ?Sized + Display,
     {
         Err(Error::NotAStruct)
     }
@@ -264,10 +266,10 @@ pub struct Transcoder<'a> {
     event: Event,
 }
 
-impl<'a> Transcoder<'a> {
-    fn serialize_field<T: ?Sized>(&mut self, k: &'static str, v: &T) -> Result<(), Error>
+impl Transcoder<'_> {
+    fn serialize_field<T>(&mut self, k: &'static str, v: &T) -> Result<(), Error>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         let key = k.into();
         let value = serde_json_wasm::to_string(v)?;
@@ -283,18 +285,14 @@ impl<'a> Transcoder<'a> {
     }
 }
 
-impl<'a> SerializeStruct for Transcoder<'a> {
+impl SerializeStruct for Transcoder<'_> {
     type Ok = ();
     type Error = Error;
 
     #[inline]
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        k: &'static str,
-        v: &T,
-    ) -> Result<Self::Ok, Self::Error>
+    fn serialize_field<T>(&mut self, k: &'static str, v: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         self.serialize_field(k, v)
     }
@@ -305,18 +303,14 @@ impl<'a> SerializeStruct for Transcoder<'a> {
     }
 }
 
-impl<'a> SerializeStructVariant for Transcoder<'a> {
+impl SerializeStructVariant for Transcoder<'_> {
     type Ok = ();
     type Error = Error;
 
     #[inline]
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        k: &'static str,
-        v: &T,
-    ) -> Result<Self::Ok, Self::Error>
+    fn serialize_field<T>(&mut self, k: &'static str, v: &T) -> Result<Self::Ok, Self::Error>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         self.serialize_field(k, v)
     }

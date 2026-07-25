@@ -15,8 +15,6 @@ venv
 .env.0x
 devnet-consts.json
 !/scripts/devnet-consts.json
-bigtable-admin.json
-bigtable-writer.json
 **/cert.pem
 **/payer-mainnet.json
 **/payer-testnet.json
@@ -32,3 +30,7 @@ bigtable-writer.json
 /ethereum/out/
 /ethereum/cache/
 sui.log.*
+sui/examples/wrapped_coin
+*.prof
+# Only used for internal testing
+*.testnet.yaml

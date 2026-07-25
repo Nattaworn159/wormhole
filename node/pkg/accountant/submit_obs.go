@@ -2,7 +2,6 @@ package accountant
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,10 +10,8 @@ import (
 	"time"
 
 	"github.com/certusone/wormhole/node/pkg/common"
-	"github.com/certusone/wormhole/node/pkg/wormconn"
+	"github.com/certusone/wormhole/node/pkg/guardiansigner"
 	"github.com/wormhole-foundation/wormhole/sdk/vaa"
-
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
 	wasmdtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
@@ -23,18 +20,39 @@ import (
 	"go.uber.org/zap"
 )
 
-// TODO: Arbitrary values. What makes sense?
 const batchSize = 10
 const delayInMS = 100 * time.Millisecond
 
+// baseWorker is the entry point for the base accountant worker.
+func (acct *Accountant) baseWorker(ctx context.Context) error {
+	return acct.worker(ctx, false)
+}
+
+// nttWorker is the entry point for the NTT accountant worker.
+func (acct *Accountant) nttWorker(ctx context.Context) error {
+	return acct.worker(ctx, true)
+}
+
 // worker listens for observation requests from the accountant and submits them to the smart contract.
-func (acct *Accountant) worker(ctx context.Context) error {
+func (acct *Accountant) worker(ctx context.Context, isNTT bool) error {
+	subChan := acct.subChan
+	wormchainConn := acct.wormchainConn
+	contract := acct.contract
+	prefix := SubmitObservationPrefix
+	tag := "accountant"
+	if isNTT {
+		subChan = acct.nttSubChan
+		wormchainConn = acct.nttWormchainConn
+		contract = acct.nttContract
+		prefix = NttSubmitObservationPrefix
+		tag = "ntt-accountant"
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			if err := acct.handleBatch(ctx); err != nil {
+			if err := acct.handleBatch(ctx, subChan, wormchainConn, contract, prefix, tag); err != nil {
 				return err
 			}
 		}
@@ -43,13 +61,13 @@ func (acct *Accountant) worker(ctx context.Context) error {
 
 // handleBatch reads a batch of events from the channel, either until a timeout occurs or the batch is full,
 // and submits them to the smart contract.
-func (acct *Accountant) handleBatch(ctx context.Context) error {
+func (acct *Accountant) handleBatch(ctx context.Context, subChan chan *common.MessagePublication, wormchainConn AccountantWormchainConn, contract string, prefix []byte, tag string) error {
 	ctx, cancel := context.WithTimeout(ctx, delayInMS)
 	defer cancel()
 
-	msgs, err := readFromChannel[*common.MessagePublication](ctx, acct.subChan, batchSize)
+	msgs, err := common.ReadFromChannelWithTimeout[*common.MessagePublication](ctx, subChan, batchSize)
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("failed to read messages from `acct.subChan`: %w", err)
+		return fmt.Errorf("failed to read messages from channel for %s: %w", tag, err)
 	}
 
 	if len(msgs) != 0 {
@@ -62,32 +80,17 @@ func (acct *Accountant) handleBatch(ctx context.Context) error {
 
 	gs := acct.gst.Get()
 	if gs == nil {
-		return fmt.Errorf("failed to get guardian set")
+		return fmt.Errorf("failed to get guardian set for %s", tag)
 	}
 
 	guardianIndex, found := gs.KeyIndex(acct.guardianAddr)
 	if !found {
-		return fmt.Errorf("failed to get guardian index")
+		return fmt.Errorf("failed to get guardian index for %s", tag)
 	}
 
-	acct.submitObservationsToContract(msgs, gs.Index, uint32(guardianIndex))
+	acct.submitObservationsToContract(msgs, gs.Index, uint32(guardianIndex), wormchainConn, contract, prefix, tag)
 	transfersSubmitted.Add(float64(len(msgs)))
 	return nil
-}
-
-// readFromChannel reads events from the channel until a timeout occurs or the batch is full, and returns them.
-func readFromChannel[T any](ctx context.Context, ch <-chan T, count int) ([]T, error) {
-	out := make([]T, 0, count)
-	for len(out) < count {
-		select {
-		case <-ctx.Done():
-			return out, ctx.Err()
-		case msg := <-ch:
-			out = append(out, msg)
-		}
-	}
-
-	return out, nil
 }
 
 // removeCompleted drops any messages that are no longer in the pending transfer map. This is to handle the case where the contract reports
@@ -175,7 +178,8 @@ type (
 	}
 )
 
-var submitObservationPrefix = []byte("acct_sub_obsfig_000000000000000000|")
+var SubmitObservationPrefix = []byte("acct_sub_obsfig_000000000000000000|")
+var NttSubmitObservationPrefix = []byte("ntt_acct_sub_obsfig_00000000000000|")
 
 func (k TransferKey) String() string {
 	return fmt.Sprintf("%v/%v/%v", k.EmitterChain, hex.EncodeToString(k.EmitterAddress[:]), k.Sequence)
@@ -193,13 +197,13 @@ func (sb SignatureBytes) MarshalJSON() ([]byte, error) {
 
 // submitObservationsToContract makes a call to the smart contract to submit a batch of observation requests.
 // It should be called from a go routine because it can block.
-func (acct *Accountant) submitObservationsToContract(msgs []*common.MessagePublication, gsIndex uint32, guardianIndex uint32) {
-	txResp, err := SubmitObservationsToContract(acct.ctx, acct.logger, acct.gk, gsIndex, guardianIndex, acct.wormchainConn, acct.contract, msgs)
+func (acct *Accountant) submitObservationsToContract(msgs []*common.MessagePublication, gsIndex uint32, guardianIndex uint32, wormchainConn AccountantWormchainConn, contract string, prefix []byte, tag string) {
+	txResp, err := SubmitObservationsToContract(acct.ctx, acct.logger, acct.guardianSigner, gsIndex, guardianIndex, wormchainConn, contract, prefix, msgs)
 	if err != nil {
 		// This means the whole batch failed. They will all get retried the next audit cycle.
-		acct.logger.Error("failed to submit any observations in batch", zap.Int("numMsgs", len(msgs)), zap.Error(err))
+		acct.logger.Error(fmt.Sprintf("failed to submit any observations in batch to %s", tag), zap.Int("numMsgs", len(msgs)), zap.Error(err))
 		for idx, msg := range msgs {
-			acct.logger.Error("failed to submit observation", zap.Int("idx", idx), zap.String("msgId", msg.MessageIDString()))
+			acct.logger.Error(fmt.Sprintf("failed to submit observation to %s", tag), zap.Int("idx", idx), zap.String("msgId", msg.MessageIDString()))
 		}
 
 		submitFailures.Add(float64(len(msgs)))
@@ -210,9 +214,9 @@ func (acct *Accountant) submitObservationsToContract(msgs []*common.MessagePubli
 	responses, err := GetObservationResponses(txResp)
 	if err != nil {
 		// This means the whole batch failed. They will all get retried the next audit cycle.
-		acct.logger.Error("failed to get responses from batch", zap.Error(err), zap.String("txResp", acct.wormchainConn.BroadcastTxResponseToString(txResp)))
+		acct.logger.Error(fmt.Sprintf("failed to get responses from batch from %s", tag), zap.Error(err), zap.String("txResp", wormchainConn.BroadcastTxResponseToString(txResp)))
 		for idx, msg := range msgs {
-			acct.logger.Error("need to retry observation", zap.Int("idx", idx), zap.String("msgId", msg.MessageIDString()))
+			acct.logger.Error(fmt.Sprintf("need to retry observation to %s", tag), zap.Int("idx", idx), zap.String("msgId", msg.MessageIDString()))
 		}
 
 		submitFailures.Add(float64(len(msgs)))
@@ -222,9 +226,9 @@ func (acct *Accountant) submitObservationsToContract(msgs []*common.MessagePubli
 
 	if len(responses) != len(msgs) {
 		// This means the whole batch failed. They will all get retried the next audit cycle.
-		acct.logger.Error("number of responses does not match number of messages", zap.Int("numMsgs", len(msgs)), zap.Int("numResp", len(responses)), zap.Error(err))
+		acct.logger.Error(fmt.Sprintf("number of responses from %s does not match number of messages", tag), zap.Int("numMsgs", len(msgs)), zap.Int("numResp", len(responses)), zap.Error(err))
 		for idx, msg := range msgs {
-			acct.logger.Error("need to retry observation", zap.Int("idx", idx), zap.String("msgId", msg.MessageIDString()))
+			acct.logger.Error(fmt.Sprintf("need to retry observation to %s", tag), zap.Int("idx", idx), zap.String("msgId", msg.MessageIDString()))
 		}
 
 		submitFailures.Add(float64(len(msgs)))
@@ -238,14 +242,14 @@ func (acct *Accountant) submitObservationsToContract(msgs []*common.MessagePubli
 		status, exists := responses[msgId]
 		if !exists {
 			// This will get retried next audit interval.
-			acct.logger.Error("did not receive an observation response for message", zap.String("msgId", msgId))
+			acct.logger.Error(fmt.Sprintf("did not receive an observation response from %s for message", tag), zap.String("msgId", msgId))
 			submitFailures.Inc()
 			continue
 		}
 
 		switch status.Type {
 		case "pending":
-			acct.logger.Info("transfer is pending", zap.String("msgId", msgId))
+			acct.logger.Info(fmt.Sprintf("transfer is pending on %s", tag), zap.String("msgId", msgId))
 		case "committed":
 			acct.handleCommittedTransfer(msgId)
 		case "error":
@@ -253,7 +257,7 @@ func (acct *Accountant) submitObservationsToContract(msgs []*common.MessagePubli
 			acct.handleTransferError(msgId, status.Data, "transfer failed")
 		default:
 			// This will get retried next audit interval.
-			acct.logger.Error("unexpected status response on observation", zap.String("msgId", msgId), zap.String("status", status.Type), zap.String("text", status.Data))
+			acct.logger.Error(fmt.Sprintf("unexpected status response from %s on observation", tag), zap.String("msgId", msgId), zap.String("status", status.Type), zap.String("text", status.Data))
 			submitFailures.Inc()
 		}
 	}
@@ -293,17 +297,18 @@ func (acct *Accountant) handleTransferError(msgId string, errText string, logTex
 func SubmitObservationsToContract(
 	ctx context.Context,
 	logger *zap.Logger,
-	gk *ecdsa.PrivateKey,
+	guardianSigner guardiansigner.GuardianSigner,
 	gsIndex uint32,
 	guardianIndex uint32,
-	wormchainConn *wormconn.ClientConn,
+	wormchainConn AccountantWormchainConn,
 	contract string,
+	prefix []byte,
 	msgs []*common.MessagePublication,
 ) (*sdktx.BroadcastTxResponse, error) {
 	obs := make([]Observation, len(msgs))
 	for idx, msg := range msgs {
 		obs[idx] = Observation{
-			TxHash:           msg.TxHash.Bytes(),
+			TxHash:           msg.TxID,
 			Timestamp:        uint32(msg.Timestamp.Unix()),
 			Nonce:            msg.Nonce,
 			EmitterChain:     uint16(msg.EmitterChain),
@@ -314,8 +319,9 @@ func SubmitObservationsToContract(
 		}
 
 		logger.Debug("in SubmitObservationsToContract, encoding observation",
+			zap.String("contract", contract),
 			zap.Int("idx", idx),
-			zap.String("txHash", msg.TxHash.String()), zap.String("encTxHash", hex.EncodeToString(obs[idx].TxHash[:])),
+			zap.String("txHash", msg.TxIDString()), zap.String("encTxHash", hex.EncodeToString(obs[idx].TxHash[:])),
 			zap.Stringer("timeStamp", msg.Timestamp), zap.Uint32("encTimestamp", obs[idx].Timestamp),
 			zap.Uint32("nonce", msg.Nonce), zap.Uint32("encNonce", obs[idx].Nonce),
 			zap.Stringer("emitterChain", msg.EmitterChain), zap.Uint16("encEmitterChain", obs[idx].EmitterChain),
@@ -331,12 +337,12 @@ func SubmitObservationsToContract(
 		return nil, fmt.Errorf("failed to marshal accountant observation request: %w", err)
 	}
 
-	digest, err := vaa.MessageSigningDigest(submitObservationPrefix, bytes)
+	digest, err := vaa.MessageSigningDigest(prefix, bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign accountant Observation request: %w", err)
 	}
 
-	sigBytes, err := ethCrypto.Sign(digest.Bytes(), gk)
+	sigBytes, err := guardianSigner.Sign(ctx, digest.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign accountant Observation request: %w", err)
 	}
@@ -364,6 +370,8 @@ func SubmitObservationsToContract(
 	}
 
 	logger.Debug("in SubmitObservationsToContract, sending broadcast",
+		zap.String("contract", contract),
+		zap.String("sender", wormchainConn.SenderAddress()),
 		zap.Int("numObs", len(obs)),
 		zap.String("observations", string(bytes)),
 		zap.Uint32("gsIndex", gsIndex), zap.Uint32("guardianIndex", guardianIndex),
@@ -395,8 +403,17 @@ func SubmitObservationsToContract(
 		return txResp, fmt.Errorf("failed to submit observations: %s", txResp.TxResponse.RawLog)
 	}
 
-	logger.Info("done sending broadcast", zap.Int("numObs", len(obs)), zap.Int64("gasUsed", txResp.TxResponse.GasUsed), zap.Stringer("elapsedTime", time.Since(start)))
-	logger.Debug("in SubmitObservationsToContract, done sending broadcast", zap.String("resp", wormchainConn.BroadcastTxResponseToString(txResp)))
+	logger.Info("done sending broadcast",
+		zap.String("contract", contract),
+		zap.Int("numObs", len(obs)),
+		zap.Int64("gasUsed", txResp.TxResponse.GasUsed),
+		zap.Stringer("elapsedTime", time.Since(start)),
+	)
+
+	logger.Debug("in SubmitObservationsToContract, done sending broadcast",
+		zap.String("contract", contract),
+		zap.String("resp", wormchainConn.BroadcastTxResponseToString(txResp)),
+	)
 	return txResp, nil
 }
 
@@ -409,7 +426,7 @@ func GetObservationResponses(txResp *sdktx.BroadcastTxResponse) (map[string]Obse
 	}
 
 	var msg sdktypes.TxMsgData
-	if err := msg.Unmarshal([]byte(data)); err != nil {
+	if err := msg.Unmarshal(data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
 	}
 

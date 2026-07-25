@@ -2,11 +2,13 @@ package telemetry
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	google_cloud_logging "cloud.google.com/go/logging"
+	"github.com/grafana/loki/pkg/logproto"
+
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -22,20 +24,18 @@ func (logger *externalLoggerMock) log(time time.Time, message json.RawMessage, l
 		logger.eventCounter.Add(1)
 	}
 
-	// do the following to make sure that the conversion into a google_cloud_logging.Entry works
-	entry := google_cloud_logging.Entry{
+	// do the following to make sure that the conversion into a loki log entry works
+	entry := logproto.Entry{
 		Timestamp: time,
-		Payload:   message,
-		Severity:  logLevelSeverity[level],
+		Line:      string(message),
 	}
-
-	_, err := google_cloud_logging.ToLogEntry(entry, "/")
+	_, err := entry.Marshal()
 	if err != nil {
-		panic("message could not be converted to google cloud log entry")
+		panic(fmt.Sprintf("message could not be converted to loki log entry: %v", err))
 	}
 
 }
-func (logger *externalLoggerMock) flush() error {
+func (logger *externalLoggerMock) close() error {
 	return nil
 }
 

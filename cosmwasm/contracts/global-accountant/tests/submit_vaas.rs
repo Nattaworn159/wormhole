@@ -5,12 +5,12 @@ use cosmwasm_std::{from_binary, to_binary, Binary, Event, Uint256};
 use global_accountant::msg::{Observation, ObservationStatus, SubmitObservationResponse};
 use helpers::*;
 use serde_wormhole::RawMessage;
-use wormhole::{
+use wormhole_bindings::fake::WormholeKeeper;
+use wormhole_sdk::{
     token::Message,
     vaa::{Body, Header, Vaa},
     Address, Amount, Chain,
 };
-use wormhole_bindings::fake::WormholeKeeper;
 
 fn create_transfer_vaas(wh: &WormholeKeeper, count: usize) -> (Vec<Vaa<Message>>, Vec<Binary>) {
     let mut vaas = Vec::with_capacity(count);
@@ -203,7 +203,7 @@ fn bad_signature() {
         .submit_vaas(vec![data])
         .expect_err("successfully submitted VAA with bad signature");
     assert_eq!(
-        "generic error: querier contract error: failed to recover verifying key",
+        "generic error: querier contract error: failed to verify signature",
         err.root_cause().to_string().to_lowercase()
     );
 }

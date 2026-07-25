@@ -1,4 +1,4 @@
-import { ChainGrpcWasmApi } from "@injectivelabs/sdk-ts";
+import { JsonRpcProvider } from "@mysten/sui.js";
 import { Commitment, Connection, PublicKeyInitData } from "@solana/web3.js";
 import { LCDClient } from "@terra-money/terra.js";
 import { LCDClient as XplaLCDClient } from "@xpla/xpla.js";
@@ -9,24 +9,21 @@ import { ethers } from "ethers";
 import { fromUint8Array } from "js-base64";
 import { Provider } from "near-api-js/lib/providers";
 import { redeemOnTerra } from ".";
-import {
-  ensureHexPrefix,
-  parseSmartContractStateResponse,
-  TERRA_REDEEMED_CHECK_WALLET_ADDRESS,
-} from "..";
+import { TERRA_REDEEMED_CHECK_WALLET_ADDRESS, ensureHexPrefix } from "..";
 import {
   BITS_PER_KEY,
-  calcLogicSigAccount,
   MAX_BITS,
   _parseVAAAlgorand,
+  calcLogicSigAccount,
 } from "../algorand";
 import { TokenBridgeState } from "../aptos/types";
 import { getSignedVAAHash } from "../bridge";
 import { Bridge__factory } from "../ethers-contracts";
 import { getClaim } from "../solana/wormhole";
+import { getObjectFields, getTableKeyType } from "../sui/utils";
 import { safeBigIntToNumber } from "../utils/bigint";
 import { callFunctionNear } from "../utils/near";
-import { parseVaa, SignedVaa } from "../vaa/wormhole";
+import { SignedVaa, parseVaa } from "../vaa/wormhole";
 
 export async function getIsTransferCompletedEth(
   tokenBridgeAddress: string,
@@ -44,16 +41,13 @@ export async function getIsTransferCompletedEth(
 export async function getIsTransferCompletedTerra(
   tokenBridgeAddress: string,
   signedVAA: Uint8Array,
-  client: LCDClient,
-  gasPriceUrl: string
+  client: LCDClient
 ): Promise<boolean> {
   const msg = await redeemOnTerra(
     tokenBridgeAddress,
     TERRA_REDEEMED_CHECK_WALLET_ADDRESS,
     signedVAA
   );
-  // TODO: remove gasPriceUrl and just use the client's gas prices
-  const gasPrices = await axios.get(gasPriceUrl).then((result) => result.data);
   const account = await client.auth.accountInfo(
     TERRA_REDEEMED_CHECK_WALLET_ADDRESS
   );
@@ -69,7 +63,6 @@ export async function getIsTransferCompletedTerra(
         msgs: [msg],
         memo: "already redeemed calculation",
         feeDenoms: ["uluna"],
-        gasPrices,
       }
     );
   } catch (e: any) {
@@ -105,32 +98,6 @@ export async function getIsTransferCompletedTerra2(
     }
   );
   return result.is_redeemed;
-}
-
-/**
- * Return if the VAA has been redeemed or not
- * @param tokenBridgeAddress The Injective token bridge contract address
- * @param signedVAA The signed VAA byte array
- * @param client Holds the wallet and signing information
- * @returns true if the VAA has been redeemed.
- */
-export async function getIsTransferCompletedInjective(
-  tokenBridgeAddress: string,
-  signedVAA: Uint8Array,
-  client: ChainGrpcWasmApi
-): Promise<boolean> {
-  const queryResult = await client.fetchSmartContractState(
-    tokenBridgeAddress,
-    Buffer.from(
-      JSON.stringify({
-        is_vaa_redeemed: {
-          vaa: fromUint8Array(signedVAA),
-        },
-      })
-    ).toString("base64")
-  );
-  const parsed = parseSmartContractStateResponse(queryResult);
-  return parsed.is_redeemed;
 }
 
 export async function getIsTransferCompletedXpla(
@@ -295,4 +262,51 @@ export async function getIsTransferCompletedAptos(
   } catch {
     return false;
   }
+}
+
+export async function getIsTransferCompletedSui(
+  provider: JsonRpcProvider,
+  tokenBridgeStateObjectId: string,
+  transferVAA: Uint8Array
+): Promise<boolean> {
+  const tokenBridgeStateFields = await getObjectFields(
+    provider,
+    tokenBridgeStateObjectId
+  );
+  if (!tokenBridgeStateFields) {
+    throw new Error("Unable to fetch object fields from token bridge state");
+  }
+
+  const hashes = tokenBridgeStateFields.consumed_vaas?.fields?.hashes;
+  const tableObjectId = hashes?.fields?.items?.fields?.id?.id;
+  if (!tableObjectId) {
+    throw new Error("Unable to fetch consumed VAAs table");
+  }
+
+  const keyType = getTableKeyType(hashes?.fields?.items?.type);
+  if (!keyType) {
+    throw new Error("Unable to get key type");
+  }
+
+  const hash = getSignedVAAHash(transferVAA);
+  const response = await provider.getDynamicFieldObject({
+    parentId: tableObjectId,
+    name: {
+      type: keyType,
+      value: {
+        data: [...Buffer.from(hash.slice(2), "hex")],
+      },
+    },
+  });
+  if (!response.error) {
+    return true;
+  }
+
+  if (response.error.code === "dynamicFieldNotFound") {
+    return false;
+  }
+
+  throw new Error(
+    `Unexpected getDynamicFieldObject response ${response.error}`
+  );
 }

@@ -35,5 +35,7 @@ const (
 )
 
 const (
-	ValidatorAllowlistKey = "VAK"
+	ValidatorAllowlistKey         = "VAK"
+	WasmInstantiateAllowlistKey   = "WasmInstiantiateAllowlist"
+	IbcComposabilityMwContractKey = "IbcComposabilityMwContract"
 )

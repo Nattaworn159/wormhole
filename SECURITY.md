@@ -18,51 +18,47 @@ The Wormhole project engages 3rd party firms to conduct independent security aud
 
 As these 3rd party audits are completed and issues are sufficiently addressed, we make those audit reports public.
 
-- **[January 2022 - Neodyme](https://storage.googleapis.com/wormhole-audits/2022-01-10_neodyme.pdf)**: _Ethereum Contracts_
-- **[January 2022 - Neodyme](https://storage.googleapis.com/wormhole-audits/2022-01-10_neodyme.pdf)**: _Solana Contracts_
-- **[January 2022 - Neodyme](https://storage.googleapis.com/wormhole-audits/2022-01-10_neodyme.pdf)**: _Terra Contracts_
-- **[January 2022 - Neodyme](https://storage.googleapis.com/wormhole-audits/2022-01-10_neodyme.pdf)**: _Guardian_
-- **[January 2022 - Neodyme](https://storage.googleapis.com/wormhole-audits/2022-01-10_neodyme.pdf)**: _Solitaire_
-- **[July 2022 - Kudelski](https://storage.googleapis.com/wormhole-audits/2022-07-01_kudelski.pdf)**: _Ethereum Contracts_
-- **[July 2022 - Kudelski](https://storage.googleapis.com/wormhole-audits/2022-07-01_kudelski.pdf)**: _Solana Contracts_
-- **[July 2022 - Kudelski](https://storage.googleapis.com/wormhole-audits/2022-07-01_kudelski.pdf)**: _Terra Contracts_
-- **[July 2022 - Kudelski](https://storage.googleapis.com/wormhole-audits/2022-07-01_kudelski.pdf)**: _Guardian_
-- **[August 2022 - Kudelski](https://storage.googleapis.com/wormhole-audits/2022-08-16_kudelski.pdf)**: _Algorand Contracts_
-- **[September 2022 - OtterSec](https://storage.googleapis.com/wormhole-audits/Wormhole_Near_OtterSec.pdf)**: _NEAR Contracts_
-- **[September 2022 - Trail of Bits](https://storage.googleapis.com/wormhole-audits/Wormhole_Audit_Report_TrailOfBits_2022-09.pdf)**: _Solana Contracts_
-- **[September 2022 - Trail of Bits](https://storage.googleapis.com/wormhole-audits/Wormhole_Audit_Report_TrailOfBits_2022-09.pdf)**: _CosmWasm Contracts_
-- **[October 2022 - OtterSec](https://storage.googleapis.com/wormhole-audits/Wormhole_OtterSec_Aptos_2022-10.pdf)**: _Aptos Contracts_
-- **[October 2022 - Hacken](https://storage.googleapis.com/wormhole-audits/Wormhole_dApp_NEAR_AuditReport_Hacken_2022-10-25.pdf)**: _NEAR Integration_
-- **[November 2022 - Zellic](https://storage.googleapis.com/wormhole-audits/Wormhole_Aptos_Audit_Report_Zellic_2022-11.pdf)**: _Aptos Integration_
-- **[February 2023 - OtterSec](https://storage.googleapis.com/wormhole-audits/Wormhole_OtterSec_Aptos_NFT_2023-02.pdf)**: _Aptos NFT Bridge_
-- **Q4 2022 - Halborn (DRAFT)**: _Wormchain_
-- **Q4 2022 - Halborn (DRAFT)**: _Accounting_
-- **Q4 2022 - Certik (DRAFT)**: _Ethereum Contracts_
-- **Q4 2022 - Certik (DRAFT)**: _Solana Contracts_
-- **Q4 2022 - Certik (DRAFT)**: _Terra Contracts_
-- **Q4 2022 - Certik (DRAFT)**: _Guardian_
-- **Q4 2022 - Certik (DRAFT)**: _Solitaire_
-- **Q4 2022 - Coinspect (DRAFT)**: _Algorand Contracts_
-- **Q4 2022 - Hacken (DRAFT)**: _NEAR Contracts_
-- **Q1 2023 - Trail of Bits (SCHEDULED)**: _Guardian_
-
+- **[January 2022 - Neodyme](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-01-10_neodyme.pdf)**: _Ethereum Contracts_
+- **[January 2022 - Neodyme](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-01-10_neodyme.pdf)**: _Solana Contracts_
+- **[January 2022 - Neodyme](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-01-10_neodyme.pdf)**: _Terra Contracts_
+- **[January 2022 - Neodyme](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-01-10_neodyme.pdf)**: _Guardian_
+- **[January 2022 - Neodyme](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-01-10_neodyme.pdf)**: _Solitaire_
+- **[July 2022 - Kudelski](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-07-01_kudelski.pdf)**: _Ethereum Contracts_
+- **[July 2022 - Kudelski](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-07-01_kudelski.pdf)**: _Solana Contracts_
+- **[July 2022 - Kudelski](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-07-01_kudelski.pdf)**: _Terra Contracts_
+- **[July 2022 - Kudelski](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-07-01_kudelski.pdf)**: _Guardian_
+- **[August 2022 - Kudelski](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-08-16_kudelski.pdf)**: _Algorand Contracts_
+- **[September 2022 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_Near_OtterSec.pdf)**: _NEAR Contracts_
+- **[September 2022 - Trail of Bits](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_Audit_Report_TrailOfBits_2022-09.pdf)**: _Solana Contracts_
+- **[September 2022 - Trail of Bits](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_Audit_Report_TrailOfBits_2022-09.pdf)**: _CosmWasm Contracts_
+- **[October 2022 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_OtterSec_Aptos_2022-10.pdf)**: _Aptos Contracts_
+- **[October 2022 - Hacken](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_dApp_NEAR_AuditReport_Hacken_2022-10-25.pdf)**: _NEAR Integration_
+- **[October 2022 - Coinspect](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2022-10_Coinspect_Wormhole_Algorand.pdf)**: _Algorand Contracts_
+- **[November 2022 - Zellic](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_Aptos_Audit_Report_Zellic_2022-11.pdf)**: _Aptos Integration_
+- **[February 2023 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_OtterSec_Aptos_NFT_2023-02.pdf)**: _Aptos NFT Bridge_
+- **[March 2023 - CertiK](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2023-03-08_CertiK_Wormhole_EVM.pdf)**: _EVM Contracts_
+- **[April 2023 - Trail of Bits](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_Audit_Report_TrailOfBits_2023-04.pdf)**: _Guardian node: Governor and Watchers_
+- **[April 2023 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/Wormhole_OtterSec_Sui_2023-04.pdf)**: _Sui Contracts_
+- **[May 2023 - Runtime Verification](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2023-05_Runtime_Verification_Wormhole_EVM.pdf)**: _Formal Verification of EVM contracts_
+- **[January 2024 - Cyfrin](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-01-10-cyfrin-thermae-v2.0.pdf)**: _Uniswap Liquidity Layer EVM Contracts_
+- **[January 2024 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-01-ottersec-terra.pdf)**: _Terra Classic Contract Upgrades_
+- **[February 2024 - Cyfrin](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-04-09-cyfrin-wormhole-evm-cctp-v2-1.pdf)**: _CCTP EVM Contracts_
+- **[March 2024 - Cyfrin](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-04-11-cyfrin-wormhole-evm-ntt.pdf)**: _NTT EVM Contracts_
+- **[March 2024 - Cantina](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-04-cantina-wormhole-evm-ntt.pdf)**: _NTT EVM Contracts_
+- **[March 2024 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-03-28-ottersec-solana-ntt.pdf)**: _NTT Solana Contracts_
+- **[March 2024 - Neodyme](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-04-12-neodyme-solana-ntt.pdf)**: _NTT Solana Contracts_
+- **[July 2024 - Cyfrin](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-07-23-cyfrin-wormhole-evm-ntt-diff-v1.1.0.pdf)**: _NTT EVM v1.1.0_
+- **[August 2024 - OtterSec](https://github.com/wormhole-foundation/wormhole-audits/blob/main/2024-08-02-ottersec-solana-ntt-token-extensions.pdf)**: _NTT Solana Token Extensions_
 
 ## Bug Bounty Program
 
-The Wormhole project operates two bug bounty programs to financially incentivize independent researchers for finding and responsibly disclosing security issues.
+The Wormhole project operates a bug bounty program to financially incentivize independent researchers for finding and responsibly disclosing security issues.
 
-- [Self-Hosted Program](https://wormhole.com/bounty/)
-  - **Scopes**: Guardian and Smart Contracts
-  - **Rewards**: Up to $2,500,000 USDC
-  - **KYC**: Required
-- [Immunefi-Hosted Program](https://immunefi.com/bounty/wormhole/)
-  - **Scopes**: Guardian and Smart Contracts
-  - **Rewards**: Up to $2,500,000 USDC
-  - **KYC**: Required
+[Immunefi-Hosted Program](https://immunefi.com/bug-bounty/wormhole/information/)
 
-If you find a security issue in Wormhole, please report the issue immediately using one of the two bug bounty programs above.
+If you find a security issue in Wormhole, please report the issue immediately using the bug bounty program above.
 
-If there is a duplicate report, either the same reporter or different reporters, the first of the two by timestamp will be accepted as the official bug report and will be subject to the specific terms of the submitting program.
+If there is a duplicate report, either the same reporter or different reporters, the first of the two by timestamp will be accepted as the official bug report and will be subject to the specific terms of the  program.
 
 ## Trust Assumptions
 
@@ -106,7 +102,7 @@ It's important to remember this is an iterative process and to stay positive. If
 
 ## Chain Integrators
 
-As the list of chains connected to Wormhole increases, so does the risk that a given connected could introduce risks to the Wormhole network. As a result, Wormhole does have built-in safety features (e.g.: [Governor white-paper](https://github.com/wormhole-foundation/wormhole/blob/main/whitepapers/0007_governor.md)) to reduce the "blast radius" of such case. That said, a defense in depth strategy is required to do as much as possible to secure the network. As part of this methodology, the Wormhole project recommends that all connected chains current and future implement robust security programs of their own to do their part in managing chain compromise risk to the wormhole network.
+As the list of chains connected to Wormhole increases, so does the risk that a given connection could introduce risks to the Wormhole network. As a result, Wormhole does have built-in safety features (e.g.: [Governor white-paper](https://github.com/wormhole-foundation/wormhole/blob/main/whitepapers/0007_governor.md)) to reduce the "blast radius" of such case. That said, a defense in depth strategy is required to do as much as possible to secure the network. As part of this methodology, the Wormhole project recommends that all connected chains current and future implement robust security programs of their own to do their part in managing chain compromise risk to the Wormhole network.
 
 Here are a few ways in which connected chains can maintain high security standards:
 
@@ -130,7 +126,7 @@ Additionally, ensure:
 
 The Wormhole project maintains a social media monitoring program to stay abreast of important ecosystem developments.
 
-These developments include monitoring services like Twitter for key phrases and patterns such that the Wormhole project is informed of a compromise or vulnerability in a dependancy that could negatively affect Wormhole, its users, or the chains that Wormhole is connected to.
+These developments include monitoring services like Twitter for key phrases and patterns such that the Wormhole project is informed of a compromise or vulnerability in a dependency that could negatively affect Wormhole, its users, or the chains that Wormhole is connected to.
 
 In the case of a large ecosystem development that requires response, the Wormhole project will engage its security incident response program.
 
@@ -138,7 +134,7 @@ In the case of a large ecosystem development that requires response, the Wormhol
 
 The Wormhole project maintains an incident response program to respond to vulnerabilities or active threats to Wormhole, its users, or the ecosystems it's connected to.  Wormhole can be made aware about a security event from a variety of different sources (eg. bug bounty program, audit finding, security monitoring, social media, etc.)
 
-When a Wormhole project contributor becomes aware of a security event, that contributor immediately holds the role of [incident commander](https://en.wikipedia.org/wiki/Incident_commander) for the issue until they hand off to a more appropriate incident commander.  A contributor does not need to be a "security person" or have any special priviledges to hold the role of incident commander, they simply need to be responsible, communicate effectively, and maintain the following obligations to manage the incident to completion.
+When a Wormhole project contributor becomes aware of a security event, that contributor immediately holds the role of [incident commander](https://en.wikipedia.org/wiki/Incident_commander) for the issue until they hand off to a more appropriate incident commander.  A contributor does not need to be a "security person" or have any special privileges to hold the role of incident commander, they simply need to be responsible, communicate effectively, and maintain the following obligations to manage the incident to completion.
 
 The role of the incident commander for Wormhole includes the following minimum obligations:
 
@@ -177,7 +173,7 @@ The benefits of such an approach include the following:
 The caveats of such an approach include the following:
 
 - Speed to shutdown is limited by speed to develop the temporary bug fix (only for the unknown cases, known cases won't require development)
-- Speed to shutdown is limited by speed at which goverance can be passed to accept the temporary bug fix (slower for unknown cases and faster for known cases)
+- Speed to shutdown is limited by speed at which governance can be passed to accept the temporary bug fix (slower for unknown cases and faster for known cases)
 - Restoring after a shutdown will require a secondary governance action to either repoint the proxy contract to a non-shutdown implementation (known cases) or to revert the temporary patch and apply the long term patch (unknown cases)
 
 ## Security Monitoring

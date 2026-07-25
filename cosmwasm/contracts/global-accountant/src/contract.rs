@@ -16,12 +16,14 @@ use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 use serde_wormhole::RawMessage;
 use tinyvec::{Array, TinyVec};
-use wormhole::{
-    accountant as accountant_module, token,
+use wormhole_bindings::WormholeQuery;
+use wormhole_sdk::{
+    accountant as accountant_module,
+    accountant_modification::ModificationKind,
+    token,
     vaa::{self, Body, Header, Signature},
     Chain,
 };
-use wormhole_bindings::WormholeQuery;
 
 use crate::{
     bail,
@@ -332,7 +334,7 @@ fn handle_vaa(
 
     // We may also accept governance messages from wormchain in the future
     let mut evt = if body.emitter_chain == Chain::Solana
-        && body.emitter_address == wormhole::GOVERNANCE_EMITTER
+        && body.emitter_address == wormhole_sdk::GOVERNANCE_EMITTER
     {
         if body.payload.len() < 32 {
             bail!("governance module missing");
@@ -416,9 +418,9 @@ fn handle_accountant_governance_vaa(
         } => {
             let token_address = TokenAddress::new(token_address.0);
             let kind = match kind {
-                accountant_module::ModificationKind::Add => Kind::Add,
-                accountant_module::ModificationKind::Subtract => Kind::Sub,
-                accountant_module::ModificationKind::Unknown => {
+                ModificationKind::Add => Kind::Add,
+                ModificationKind::Subtract => Kind::Sub,
+                ModificationKind::Unknown => {
                     bail!("unsupported governance action")
                 }
             };
@@ -720,7 +722,7 @@ fn query_batch_transfer_status(
         .map(|key| {
             let status = match query_transfer_status(deps, &key) {
                 Ok(s) => Some(s),
-                Err(e) if matches!(e, StdError::NotFound { .. }) => None,
+                Err(StdError::NotFound { .. }) => None,
                 Err(e) => return Err(e),
             };
             Ok(TransferDetails { key, status })
