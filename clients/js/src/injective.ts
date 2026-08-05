@@ -11,7 +11,7 @@ import {
   PrivateKey,
   TxGrpcApi,
 } from "@injectivelabs/sdk-ts";
-import { DEFAULT_STD_FEE, getStdFee } from "@injectivelabs/utils";
+import { getStdFee } from "@injectivelabs/utils";
 import { fromUint8Array } from "js-base64";
 import { NETWORKS } from "./consts";
 import { impossible, Payload } from "./vaa";
@@ -218,7 +218,7 @@ async function signAndSendTx(
   const { signBytes, txRaw } = createTransaction({
     message: msgs,
     memo: "",
-    fee: getStdFee((parseInt(DEFAULT_STD_FEE.gas, 10) * 2.5).toString()),
+    fee: getStdFee((150000 * 2.5).toString()),
     pubKey: walletPublicKey,
     sequence: parseInt(accountDetails.account.base_account.sequence, 10),
     accountNumber: parseInt(
