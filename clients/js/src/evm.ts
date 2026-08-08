@@ -7,7 +7,6 @@ import {
 import { WormholeRelayer__factory } from "@certusone/wormhole-sdk/lib/esm/ethers-relayer-contracts";
 import axios from "axios";
 import { ethers } from "ethers";
-import { solidityKeccak256 } from "ethers/lib/utils";
 import { NETWORKS } from "./consts";
 import { Encoding, Payload, encode, impossible, typeWidth } from "./vaa";
 import {
@@ -680,7 +679,7 @@ export function computeArrayElemSlot(
   array_slot: StorageSlotish,
   offset: number
 ): StorageSlot {
-  return ethers.BigNumber.from(solidityKeccak256(["bytes"], [array_slot])).add(
+  return ethers.BigNumber.from(ethers.solidityPackedKeccak256(["bytes"], [array_slot])).add(
     offset
   );
 }
@@ -700,7 +699,7 @@ export function computeMappingElemSlot(
     ["uint256", "uint256"],
     [key, map_slot]
   );
-  return ethers.BigNumber.from(solidityKeccak256(["bytes"], [slot_preimage]));
+  return ethers.BigNumber.from(ethers.solidityPackedKeccak256(["bytes"], [slot_preimage]));
 }
 
 /**

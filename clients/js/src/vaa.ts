@@ -1,7 +1,6 @@
 import { Parser } from "binary-parser";
 import * as elliptic from "elliptic";
 import { BigNumber, ethers } from "ethers";
-import { solidityKeccak256 } from "ethers/lib/utils";
 
 export interface Signature {
   guardianSetIndex: number;
@@ -195,9 +194,9 @@ export function serialiseVAA(vaa: VAA<Payload>) {
 }
 
 export function vaaDigest(vaa: VAA<Payload | Other>) {
-  return solidityKeccak256(
+  return ethers.solidityPackedKeccak256(
     ["bytes"],
-    [solidityKeccak256(["bytes"], ["0x" + vaaBody(vaa)])]
+    [ethers.solidityPackedKeccak256(["bytes"], ["0x" + vaaBody(vaa)])]
   );
 }
 

@@ -1,12 +1,9 @@
-import { arrayify, zeroPad } from "@ethersproject/bytes";
+import { arrayify, stripZeros, zeroPad } from "@ethersproject/bytes";
 import { PublicKey } from "@solana/web3.js";
 import {
-  hexValue,
-  hexZeroPad,
   keccak256,
   sha256,
-  stripZeros,
-} from "ethers/lib/utils";
+} from "ethers";
 import { bech32 } from "bech32";
 import {
   Chain,
