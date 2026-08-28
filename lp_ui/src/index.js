@@ -8,6 +8,7 @@ import { SolanaWalletProvider } from "./contexts/SolanaWalletContext";
 import { theme } from "./muiTheme";
 import { SnackbarProvider } from "notistack";
 import { EthereumProviderProvider } from "./contexts/EthereumProviderContext";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 ReactDOM.render(
   <ErrorBoundary>
     <ThemeProvider theme={theme}>
@@ -17,6 +18,7 @@ ReactDOM.render(
           <SnackbarProvider maxSnack={3}>
             <LoggerProvider>
               <App />
+              <SpeedInsights />
             </LoggerProvider>
           </SnackbarProvider>
         </EthereumProviderProvider>
