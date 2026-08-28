@@ -8,5 +8,6 @@
   "testRegex": "(/__tests__/.*|(\\.|/)(test|spec))\\.(jsx?|tsx?)$",
   "testPathIgnorePatterns": ["__tests__/utils"],
   "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json", "node"],
-  "testTimeout": 60000
+  "testTimeout": 60000,
+  "transformIgnorePatterns": ["/node_modules/(?!@injectivelabs|@protobuf-ts)"]
 }
