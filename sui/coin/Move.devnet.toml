@@ -1,0 +1,14 @@
+[package]
+name = "Coin"
+version = "0.0.1"
+
+[dependencies.Sui]
+git = "https://github.com/MystenLabs/sui.git"
+subdir = "crates/sui-framework/packages/sui-framework"
+rev = "a63f425b9999c7fdfe483598720a9effc0acdc9e"
+
+[dependencies.TokenBridge]
+local = "../token_bridge"
+
+[addresses]
+coin = "_"
