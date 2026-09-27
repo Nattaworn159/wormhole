@@ -16,6 +16,7 @@ jobs:
     steps:
       - name: Force supported Copilot model
         run: |
-          echo "COPILOT_AGENT_MODEL=sweagent-capi:claude-sonnet-5" >> "$GITHUB_ENV"
-          echo "COPILOT_MODEL=sweagent-capi:claude-sonnet-5" >> "$GITHUB_ENV"
-          echo "GITHUB_COPILOT_MODEL=sweagent-capi:claude-sonnet-5" >> "$GITHUB_ENV"
+          MODEL="sweagent-capi:claude-sonnet-5"
+          echo "COPILOT_AGENT_MODEL=$MODEL" >> "$GITHUB_ENV"
+          echo "COPILOT_MODEL=$MODEL" >> "$GITHUB_ENV"
+          echo "GITHUB_COPILOT_MODEL=$MODEL" >> "$GITHUB_ENV"
