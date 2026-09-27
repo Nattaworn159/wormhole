@@ -12,6 +12,7 @@ on:
 jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Force supported Copilot model
         run: |
