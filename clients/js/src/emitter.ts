@@ -6,7 +6,7 @@ import {
 } from "@wormhole-foundation/sdk-base";
 import { decodeAddress, getApplicationAddress } from "algosdk";
 import { uint8ArrayToHex } from "./sdk/array";
-import { arrayify, sha256, zeroPad } from "ethers/lib/utils";
+import { getBytes, sha256, zeroPadBytes } from "ethers";
 import { bech32 } from "bech32";
 import { PublicKey } from "@solana/web3.js";
 
@@ -21,14 +21,14 @@ export async function getEmitterAddress(chain: ChainId | Chain, addr: string) {
     addr = programAddr.toBuffer().toString("hex");
   } else if (chainToPlatform(localChain) === "Cosmwasm") {
     addr = Buffer.from(
-      zeroPad(bech32.fromWords(bech32.decode(addr).words), 32)
+      zeroPadBytes(new Uint8Array(bech32.fromWords(bech32.decode(addr).words)), 32)
     ).toString("hex");
   } else if (localChain === "Algorand") {
     const appAddr: string = getApplicationAddress(BigInt(addr));
     const decAppAddr: Uint8Array = decodeAddress(appAddr).publicKey;
     addr = uint8ArrayToHex(decAppAddr);
   } else if (localChain === "Near") {
-    addr = uint8ArrayToHex(arrayify(sha256(Buffer.from(addr, "utf8"))));
+    addr = uint8ArrayToHex(getBytes(sha256(Buffer.from(addr, "utf8"))));
   } else if (localChain === "Aptos") {
     // TODO: There should be something in the SDK to do this.
     if (
@@ -66,7 +66,7 @@ export async function getEmitterAddress(chain: ChainId | Chain, addr: string) {
     }
   } else {
     // This is the Eth version
-    addr = Buffer.from(zeroPad(arrayify(addr), 32)).toString("hex");
+    addr = Buffer.from(zeroPadBytes(getBytes(addr), 32)).toString("hex");
   }
 
   return addr;
