@@ -20,7 +20,7 @@ Pin: release n=bullseye-updates\n\
 Pin-Priority: 100\n" > /etc/apt/preferences.d/99bullseye-main && \
   apt-get -o Dir::Etc::sourceparts=- update && \
   apt-get -o Dir::Etc::sourceparts=- -y install --no-install-recommends \
-  git python make curl netcat && \
+  git python3 python-is-python3 make curl netcat && \
   rm -rf /var/lib/apt/lists/*
 
 RUN npm i typescript -g
