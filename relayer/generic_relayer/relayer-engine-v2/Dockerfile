@@ -7,8 +7,19 @@ FROM node:19.6.1-slim@sha256:a1ba21bf0c92931d02a8416f0a54daad66cb36a85d2b73af9d7
 RUN printf "deb https://deb.debian.org/debian bullseye main\n\
 deb https://deb.debian.org/debian-security bullseye-security main\n\
 deb https://deb.debian.org/debian bullseye-updates main\n" > /etc/apt/sources.list && \
+  printf "Package: *\n\
+Pin: release n=bullseye\n\
+Pin-Priority: 1001\n\
+\n\
+Package: *\n\
+Pin: release n=bullseye-security\n\
+Pin-Priority: 100\n\
+\n\
+Package: *\n\
+Pin: release n=bullseye-updates\n\
+Pin-Priority: 100\n" > /etc/apt/preferences.d/99bullseye-main && \
   apt-get -o Dir::Etc::sourceparts=- update && \
-  apt-get -o Dir::Etc::sourceparts=- -y -t bullseye install --no-install-recommends \
+  apt-get -o Dir::Etc::sourceparts=- -y install --no-install-recommends \
   git python make curl netcat && \
   rm -rf /var/lib/apt/lists/*
 
