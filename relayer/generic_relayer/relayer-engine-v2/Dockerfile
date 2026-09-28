@@ -4,7 +4,7 @@ FROM node:19.6.1-slim@sha256:a1ba21bf0c92931d02a8416f0a54daad66cb36a85d2b73af9d7
 # npm wants to clone random Git repositories - lovely.
 # RUN apk add git python make build-base
 # RUN apk update && apk add bash
-RUN printf "deb http://deb.debian.org/debian bullseye main\n" > /etc/apt/sources.list && \
+RUN printf "deb https://deb.debian.org/debian bullseye main\n" > /etc/apt/sources.list && \
   apt-get -o Dir::Etc::sourceparts=- update && \
   apt-get -o Dir::Etc::sourceparts=- -y install --no-install-recommends \
   git python make curl netcat && \
