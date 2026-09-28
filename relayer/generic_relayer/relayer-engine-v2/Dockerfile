@@ -4,7 +4,11 @@ FROM node:19.6.1-slim@sha256:a1ba21bf0c92931d02a8416f0a54daad66cb36a85d2b73af9d7
 # npm wants to clone random Git repositories - lovely.
 # RUN apk add git python make build-base
 # RUN apk update && apk add bash
-RUN sed -i '/debian-security/d;/bullseye-updates/d' /etc/apt/sources.list && \
+RUN for source_list in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do \
+    if [ -f "$source_list" ]; then \
+      sed -i '/debian-security/d;/bullseye-updates/d' "$source_list"; \
+    fi; \
+  done && \
   apt-get update && apt-get -y install \
   git python make curl netcat
 
@@ -44,6 +48,5 @@ ARG dev
 ENV DEV=$dev
 
 COPY --chown=node:node /relayer/generic_relayer/relayer-engine-v2/ .
-
 
 
