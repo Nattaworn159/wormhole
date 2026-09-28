@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: wormhole-foundation/guardiand
+  IMAGE_NAME: ${{ github.repository_owner }}/guardiand
 
 jobs:
   build-and-push-image:
