@@ -18,8 +18,9 @@ Pin-Priority: 100\n\
 Package: *\n\
 Pin: release n=bullseye-updates\n\
 Pin-Priority: 100\n" > /etc/apt/preferences.d/99bullseye-main && \
-  apt-get -o Dir::Etc::sourceparts=- update && \
-  apt-get -o Dir::Etc::sourceparts=- -y install --no-install-recommends \
+  rm -rf /etc/apt/sources.list.d/* && \
+  apt-get update && \
+  apt-get -y install --no-install-recommends \
   git python3 python-is-python3 make curl netcat && \
   rm -rf /var/lib/apt/lists/*
 
