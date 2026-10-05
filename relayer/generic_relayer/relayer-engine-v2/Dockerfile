@@ -4,8 +4,24 @@ FROM node:19.6.1-slim@sha256:a1ba21bf0c92931d02a8416f0a54daad66cb36a85d2b73af9d7
 # npm wants to clone random Git repositories - lovely.
 # RUN apk add git python make build-base
 # RUN apk update && apk add bash
-RUN apt-get update && apt-get -y install \
-  git python make curl netcat
+RUN printf "deb http://deb.debian.org/debian bullseye main\n\
+deb http://deb.debian.org/debian-security bullseye-security main\n\
+deb http://deb.debian.org/debian bullseye-updates main\n" > /etc/apt/sources.list && \
+  printf "Package: *\n\
+Pin: release n=bullseye\n\
+Pin-Priority: 1001\n\
+\n\
+Package: *\n\
+Pin: release n=bullseye-security\n\
+Pin-Priority: 100\n\
+\n\
+Package: *\n\
+Pin: release n=bullseye-updates\n\
+Pin-Priority: 100\n" > /etc/apt/preferences.d/99bullseye-main && \
+  apt-get update && \
+  apt-get -y install --no-install-recommends \
+  git python3 python-is-python3 make curl netcat && \
+  rm -rf /var/lib/apt/lists/*
 
 RUN npm i typescript -g
 
@@ -43,7 +59,3 @@ ARG dev
 ENV DEV=$dev
 
 COPY --chown=node:node /relayer/generic_relayer/relayer-engine-v2/ .
-
-
-
-

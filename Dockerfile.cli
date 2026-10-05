@@ -6,7 +6,7 @@ COPY clients/js/package.json clients/js/package-lock.json /clients/js/
 
 WORKDIR /clients/js
 
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Copy the rest of the source files, as a layer on top of the deps
 COPY clients/js /clients/js
