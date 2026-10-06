@@ -40,5 +40,5 @@ jobs:
         with:
           context: .
           file: ./relayer/generic_relayer/relayer-engine-v2/Dockerfile
-          push: true
+          push: ${{ github.repository == 'wormhole-foundation/wormhole' }}
           tags: ${{ steps.meta.outputs.tags }}
