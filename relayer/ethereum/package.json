@@ -16,12 +16,12 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@certusone/wormhole-sdk": "^0.9.11",
+    "@certusone/wormhole-sdk": "^0.10.18",
     "@typechain/ethers-v5": "^10.2.0",
     "dotenv": "^10.0.0",
     "elliptic": "^6.6.1",
     "js-sha3": "^0.8.0",
-    "typechain": "^8.1.1"
+    "typechain": "^8.3.2"
   },
   "overrides": {
     "elliptic": "^6.6.1"

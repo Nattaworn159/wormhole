@@ -15,15 +15,15 @@ node_modules: package-lock.json
 # Instead, we just specify the dependencies here. make will then take care of
 # installing them if they are not yet present.
 # When adding a new dependency, make sure to specify the exact commit hash, and
-# the --no-git and --no-commit flags (see lib/forge-std below)
+# the --no-git flag (see lib/forge-std below)
 .PHONY: forge_dependencies
 forge_dependencies: lib/forge-std lib/openzeppelin-contracts
 
 lib/forge-std:
-	forge install foundry-rs/forge-std@v1.5.5 --no-git --no-commit
+	forge install foundry-rs/forge-std@v1.5.5 --no-git
 
 lib/openzeppelin-contracts:
-	forge install openzeppelin/openzeppelin-contracts@0457042d93d9dfd760dbaa06a4d2f1216fdbe297 --no-git --no-commit
+	forge install openzeppelin/openzeppelin-contracts@0457042d93d9dfd760dbaa06a4d2f1216fdbe297 --no-git
 
 dependencies: node_modules forge_dependencies
 
@@ -35,11 +35,12 @@ build: forge_dependencies node_modules ${SOURCE_FILES}
 
 test: test-forge
 
-.PHONY:
+.PHONY: test-forge
 test-forge: dependencies
 	forge test --no-match-test .*_KEVM # ignore KEVM tests (see PROOFS.md)
 
 # Verify that the contracts do not include PUSH0 opcodes
+.PHONY: test-push0
 test-push0: dependencies
 	forge build --extra-output evm.bytecode.opcodes
 	@if grep -qr --include \*.json PUSH0 ./build-forge; then echo "Contract uses PUSH0 instruction" 1>&2; exit 1; fi
