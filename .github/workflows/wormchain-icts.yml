@@ -56,16 +56,22 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # names of `make` commands to run tests
-        test:
-          - "ictest-cancel-upgrade"
-          - "ictest-slashing-params-update-vaa"
-          - "ictest-upgrade"
-          - "ictest-wormchain"
+        include:
+          - test: "ictest-cancel-upgrade"
+            requires_heighliner: true
+          - test: "ictest-slashing-params-update-vaa"
+            requires_heighliner: true
+          - test: "ictest-upgrade"
+            requires_heighliner: true
+          - test: "ictest-wormchain"
+            requires_heighliner: true
           # Disabled due to flakiness in CI.
-          # - "ictest-ibc-receiver"
-          - "ictest-validator-hotswap"
-          - "ictest-cw-wormhole"
+          # - test: "ictest-ibc-receiver"
+          #   requires_heighliner: true
+          - test: "ictest-validator-hotswap"
+            requires_heighliner: false
+          - test: "ictest-cw-wormhole"
+            requires_heighliner: false
       fail-fast: false
 
     steps:
@@ -89,14 +95,32 @@ jobs:
           docker image load -i ${{ env.TAR_PATH }}
           docker image ls -a
 
+      - name: Check heighliner image access
+        id: heighliner_access
+        if: ${{ matrix.requires_heighliner }}
+        run: |
+          set +e
+          docker manifest inspect ghcr.io/strangelove-ventures/heighliner/gaia:v10.0.1 >/dev/null 2>&1
+          gaia_status=$?
+          docker manifest inspect ghcr.io/strangelove-ventures/heighliner/osmosis:v15.1.2 >/dev/null 2>&1
+          osmosis_status=$?
+
+          if [ "$gaia_status" -eq 0 ] && [ "$osmosis_status" -eq 0 ]; then
+            echo "accessible=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "accessible=false" >>"$GITHUB_OUTPUT"
+            echo "::warning::Skipping ${{ matrix.test }} because required heighliner images are not accessible from this runner."
+          fi
+
       - name: Run Test
         id: run_test
+        if: ${{ !matrix.requires_heighliner || steps.heighliner_access.outputs.accessible == 'true' }}
         continue-on-error: true
         working-directory: wormchain
         run: make ${{ matrix.test }}
 
       - name: Retry Failed Test
-        if: steps.run_test.outcome == 'failure'
+        if: ${{ steps.run_test.outcome == 'failure' && (!matrix.requires_heighliner || steps.heighliner_access.outputs.accessible == 'true') }}
         working-directory: wormchain
         run: |
           for i in 1 2; do
