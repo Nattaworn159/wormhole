@@ -5,7 +5,7 @@ all: build
 
 node_modules: package-lock.json
 	@touch -m node_modules
-	npm ci
+	npm ci --legacy-peer-deps
 
 .PHONY: dependencies
 dependencies: node_modules
