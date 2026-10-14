@@ -70,7 +70,8 @@ Once you're done, press Ctrl-C. Run `tilt down` to tear down the devnet.
 
 ## Getting started on a development VM
 
-This tutorial assumes a clean Debian >=10 VM. We recommend at least **16 vCPU, 64G of RAM and 500G of disk**.
+This tutorial assumes a clean VM running Debian 10 or 11, RHEL 8, or Ubuntu 22, which are the distributions supported by
+`scripts/dev-setup.sh`. We recommend at least **16 vCPU, 64G of RAM and 500G of disk**.
 Rust eats CPU for breakfast, so the more CPUs, the nicer your Solana compilation experience will be.
 
 Install Git first:
