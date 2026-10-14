@@ -9,6 +9,9 @@ The following dependencies are required for local development:
 - Any of the local Kubernetes clusters supported by Tilt.
   We strongly recommend [minikube](https://kubernetes.io/docs/setup/learning-environment/minikube/) >=
   v1.21.0 with the kvm2 driver.
+  The VM setup script pins Minikube to v1.24.0 to work around
+  [a Minikube regression](https://github.com/kubernetes/minikube/issues/13542); its `start-recommended-minikube`
+  helper uses the Docker driver instead.
   - Tilt will use Minikube's embedded Docker server. If Minikube is not used, a local instance of
     [Docker](https://docs.docker.com/engine/install/) / moby-engine >= 19.03 is required.
 
