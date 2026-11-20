@@ -20,6 +20,7 @@
     "@types/node": "^16.9.1",
     "@types/react": "^17.0.20",
     "@types/react-dom": "^17.0.9",
+    "@vercel/speed-insights": "^2.0.0",
     "clsx": "^1.1.1",
     "ethers": "^5.4.6",
     "notistack": "^1.0.10",
