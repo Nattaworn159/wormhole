@@ -5,10 +5,10 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.40"
-borsh = "=0.9.3"
+borsh = "=1.8.1"
 token-bridge = { path = "../program", features = ["client"] }
 clap = "2.33.0"
-rand = "0.7.3"
+rand = "0.10.3"
 shellexpand = "2.1.0"
 solana-client = "=1.10.31"
 solana-program = "=1.10.31"

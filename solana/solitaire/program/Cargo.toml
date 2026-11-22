@@ -16,7 +16,7 @@ no-entrypoint = []
 trace = []
 
 [dependencies]
-borsh = "=0.9.3"
+borsh = "=1.8.1"
 byteorder = "1.4.3"
 rocksalt = { path = "../../solitaire/rocksalt" }
 
